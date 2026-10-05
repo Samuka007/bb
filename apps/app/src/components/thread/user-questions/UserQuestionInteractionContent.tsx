@@ -35,6 +35,7 @@ import {
 import type { AppShortcutPresentation } from "@/lib/app-keybindings";
 import { useOptionalPaneContext } from "@/views/thread-detail/PaneContext";
 import { useStickyFooterAvailableHeight } from "./useStickyFooterAvailableHeight.js";
+import { StopRunButton } from "../pending-interactions/StopRunButton.js";
 
 interface UserQuestionAnswerFormProps {
   className?: string;
@@ -46,6 +47,12 @@ interface UserQuestionAnswerFormProps {
    */
   isResolving?: boolean;
   questions: readonly PendingInteractionUserQuestionQuestion[];
+  /**
+   * A stop request for the blocked turn is already in flight (thread stopping
+   * or the stop mutation pending): mirror it in this card's stop entry, which
+   * is the visible cancel affordance while the card replaces the composer.
+   */
+  stopRequested?: boolean;
   threadId: string;
 }
 
@@ -292,6 +299,7 @@ export function UserQuestionAnswerForm({
   interactionId,
   isResolving = false,
   questions,
+  stopRequested,
   threadId,
 }: UserQuestionAnswerFormProps) {
   const [formState, setFormState] = useState<QuestionFormState>(() =>
@@ -414,6 +422,7 @@ export function UserQuestionAnswerForm({
   const handleCancel = (): void => {
     stopThread.mutate(threadId);
   };
+  const isStopInFlight = stopThread.isPending || (stopRequested ?? false);
 
   // Scope number-key question answers to the focused split pane, so a pending
   // question in another pane never steals the keypress. Defaults to focused on
@@ -491,15 +500,11 @@ export function UserQuestionAnswerForm({
         />
       </div>
       <div className="mt-3 flex shrink-0 items-center justify-between gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={disabled || stopThread.isPending}
+        <StopRunButton
+          disabled={disabled}
+          stopping={isStopInFlight}
           onClick={handleCancel}
-        >
-          Cancel
-        </Button>
+        />
         <div className="flex items-center gap-2">
           {!isFirst ? (
             <Button

@@ -1602,6 +1602,8 @@ export function ThreadDetailPromptArea({
           />
         ) : (
           <ThreadPendingInteractionBanner
+            onStop={handleStopThread}
+            isStopRequested={isStopRequested}
             interaction={activePendingInteraction}
             threadId={thread.id}
           />

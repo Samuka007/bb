@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   queuedMessages: [] as Array<{ id: string }>,
   readTrackingThreads: [] as Array<unknown>,
   sendThreadMessageMutateAsync: vi.fn(),
+  stopThreadMutate: vi.fn(),
   threadRuntimeDisplayStatus: "idle" as string,
   // Stands in for the realtime-updated timeline query cache: rows appended here
   // while the component is unmounted must appear after a remount.
@@ -190,8 +191,19 @@ vi.mock("@/hooks/queries/thread-queries", () => ({
 vi.mock(
   "@/components/thread/pending-interactions/ThreadPendingInteractionBanner",
   () => ({
-    ThreadPendingInteractionBanner: ({ threadId }: { threadId: string }) => (
-      <div data-testid="pending-interaction-banner">{threadId}</div>
+    ThreadPendingInteractionBanner: ({
+      threadId,
+      onStop,
+    }: {
+      threadId: string;
+      onStop?: () => void;
+    }) => (
+      <div data-testid="pending-interaction-banner">
+        {threadId}
+        {onStop ? (
+          <button type="button" aria-label="Stop run" onClick={onStop} />
+        ) : null}
+      </div>
     ),
   }),
 );
@@ -229,7 +241,7 @@ vi.mock("@/hooks/mutations/thread-runtime-mutations", () => ({
     isPending: false,
   }),
   useStopThread: () => ({
-    mutate: vi.fn(),
+    mutate: mocks.stopThreadMutate,
     isPending: false,
     variables: undefined,
   }),
@@ -484,6 +496,19 @@ describe("EmbeddedThreadChat", () => {
       "thr_side_chat",
     );
     expect(screen.queryByTestId("embedded-chat-composer")).toBeNull();
+  });
+
+  // The swapped-out composer owns the stop button, so the banner must carry a
+  // stop entry itself or a stuck approval could only be cleared via the API.
+  it("wires the pending approval's stop entry to the side chat thread", () => {
+    mocks.pendingInteractions = [
+      { id: "int_1", createdAt: 1, payload: { kind: "approval" } },
+    ];
+
+    renderEmbeddedChat({ threadId: "thr_side_chat" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop run" }));
+    expect(mocks.stopThreadMutate).toHaveBeenCalledWith("thr_side_chat");
   });
 
   // A plugin-owned interaction has its own composer, so the draft must stay.

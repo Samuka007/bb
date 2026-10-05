@@ -1293,6 +1293,8 @@ function EmbeddedThreadChatWithComposer({
     activePendingInteraction === null ||
     activePendingInteraction.payload.kind === "plugin" ? null : (
       <ThreadPendingInteractionBanner
+        onStop={threadId === null ? undefined : handleStopThread}
+        isStopRequested={isStopRequested}
         interaction={activePendingInteraction}
         threadId={threadId ?? ""}
       />
