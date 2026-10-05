@@ -81,6 +81,7 @@ import {
 } from "./TimelineTitleView.js";
 import { WorkRowBody } from "./TimelineRowDetails.js";
 import { TimelineDetailScroll } from "./TimelineDetailScroll.js";
+import { TimelineReasoningDetail } from "./TimelineReasoningDetail.js";
 import { Button } from "@bb/shared-ui/button";
 import { AutoHeightContainer } from "../../ui/height-transition.js";
 import { Icon, type IconName } from "@bb/shared-ui/icon";
@@ -1304,6 +1305,11 @@ function TimelineExpandableBody({
         />
       );
     case "system":
+      // #3250: reasoning bodies read as prose, not as the monospace system
+      // output block.
+      if (row.systemKind === "operation" && row.operationKind === "reasoning") {
+        return row.detail ? <TimelineReasoningDetail text={row.detail} /> : null;
+      }
       return row.detail ? (
         <TimelineSystemDetailBlock
           detail={row.detail}
@@ -1470,8 +1476,17 @@ export function pastRowDimClassName({
     return undefined;
   }
   switch (row.kind) {
-    case "work":
     case "system":
+      // #3250: completed warnings/deprecations keep full strength so safety
+      // notes stay readable; reasoning rows recede like completed work.
+      if (
+        row.systemKind === "operation" &&
+        (row.operationKind === "warning" || row.operationKind === "deprecation")
+      ) {
+        return undefined;
+      }
+      return row.status === "completed" ? PAST_ROW_DIM_CLASS_NAME : undefined;
+    case "work":
     case "turn":
     case "bundle-summary":
     case "step-summary":
@@ -1575,6 +1590,10 @@ export function systemOperationLeadingIcon(
   parentChangeAction: TimelineParentChange["action"] | null,
 ): IconName | undefined {
   switch (operationKind) {
+    // #3250: completed thoughts carry the brain glyph; live thinking renders
+    // through the working indicator, which passes no leading icon.
+    case "reasoning":
+      return "AiBrain01";
     case "parent-change":
       return parentChangeAction === "release" ? "UserRound" : "UserRoundPlus";
     case "thread-provisioning":
@@ -1773,6 +1792,13 @@ function TimelineExpandableRowView({
 
   return (
     <ExpandableTimelineRow
+      reasoningExpansionKey={
+        row.kind === "system" &&
+        row.systemKind === "operation" &&
+        row.operationKind === "reasoning"
+          ? (row.reasoningId ?? row.id)
+          : undefined
+      }
       title={title}
       // Dim the row's title content (not the whole row) so the disclosure caret
       // keeps a uniform opacity across completed/header/normal rows instead of

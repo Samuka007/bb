@@ -16,6 +16,7 @@ import {
 } from "../../ui/disclosure.js";
 import { Icon, type IconName } from "@bb/shared-ui/icon";
 import { cn } from "@bb/shared-ui/lib/utils";
+import { useTimelineReasoningExpansion } from "./TimelineReasoningExpansion.js";
 import {
   TIMELINE_ROW_HEADER_CONTENT_CLASS_NAME,
   timelineRowHeaderClassName,
@@ -29,6 +30,12 @@ import {
 } from "./TimelineTitleView.js";
 
 export interface ExpandableTimelineRowProps {
+  /**
+   * #3250: canonical reasoning disclosure id — when set, the manual override
+   * is stored against it (provider-held) so the live Thinking indicator and
+   * the later completed Thought row share one expansion state.
+   */
+  reasoningExpansionKey?: string;
   autoExpanded?: boolean;
   forceExpanded?: boolean;
   /**
@@ -52,7 +59,6 @@ export interface ExpandableTimelineRowProps {
   resolveSegmentLinkHref?: TimelineTitleLinkResolver;
 }
 
-type ManualExpansionOverride = boolean | null;
 type CollapsedPreviewClickEvent = MouseEvent<HTMLDivElement>;
 type CollapsedPreviewFocusEvent = FocusEvent<HTMLDivElement>;
 type CollapsedPreviewKeyboardEvent = KeyboardEvent<HTMLDivElement>;
@@ -89,6 +95,7 @@ function ExpandableTimelineRowComponent({
   leadingIcon,
   onBeforeExpand,
   onTitleAction,
+  reasoningExpansionKey,
   renderBody,
   resolveSegmentLinkHref,
   summaryClassName,
@@ -97,7 +104,7 @@ function ExpandableTimelineRowComponent({
   titleContent,
 }: ExpandableTimelineRowProps) {
   const [manualExpansionOverride, setManualExpansionOverride] =
-    useState<ManualExpansionOverride>(null);
+    useTimelineReasoningExpansion(reasoningExpansionKey);
   const [terminalAutoExpandedLatch, setTerminalAutoExpandedLatch] =
     useState(terminalAutoExpanded);
   const [collapsedPreviewActive, setCollapsedPreviewActive] = useState(false);
@@ -123,7 +130,7 @@ function ExpandableTimelineRowComponent({
       onBeforeExpand?.();
     }
     setManualExpansionOverride(!isExpanded);
-  }, [isExpanded, onBeforeExpand]);
+  }, [isExpanded, onBeforeExpand, setManualExpansionOverride]);
   const handleCollapsedPreviewClick = useCallback(
     (event: CollapsedPreviewClickEvent): void => {
       if (

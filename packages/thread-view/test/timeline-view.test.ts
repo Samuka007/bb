@@ -622,12 +622,14 @@ describe("buildTimelineViewRows", () => {
       createdAt: 11,
       turnId: "turn-1",
     });
+    // #3250: summary children widen to include reasoning rows, so the work
+    // rows must be narrowed explicitly before reading work-only fields.
     expect(
-      childSummary.children.map((child) => ({
-        id: child.id,
-        callId: child.workKind === "command" ? child.callId : null,
-        command: child.workKind === "command" ? child.command : null,
-      })),
+      childSummary.children.flatMap((child) =>
+        child.kind === "work" && child.workKind === "command"
+          ? [{ id: child.id, callId: child.callId, command: child.command }]
+          : [],
+      ),
     ).toEqual([
       {
         id: "child-command-1",

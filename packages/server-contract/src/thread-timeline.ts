@@ -140,6 +140,7 @@ export type TimelineConversationRow = z.infer<
 
 export const timelineSystemOperationKindValues = [
   "generic",
+  "reasoning",
   "compaction",
   "context-clear",
   "parent-change",
@@ -157,6 +158,7 @@ export type TimelineSystemOperationKind = z.infer<
 >;
 const timelineGenericSystemOperationKindSchema = z.enum([
   "generic",
+  "reasoning",
   "compaction",
   "context-clear",
   "thread-provisioning",
@@ -203,6 +205,9 @@ export const timelineGenericOperationSystemRowSchema =
   timelineSystemRowBaseSchema.extend({
     systemKind: z.literal("operation"),
     operationKind: timelineGenericSystemOperationKindSchema,
+    // #3250: canonical reasoning disclosure identity, carried separately from
+    // the structural row id so delegation nesting preserves expansion state.
+    reasoningId: z.string().optional(),
     completedAt: z.number().nullable(),
   });
 
