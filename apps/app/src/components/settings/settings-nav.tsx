@@ -40,6 +40,11 @@ export type SettingsSectionId = SettingsNavSection["id"];
 export const SETTINGS_PROVIDER_ENTRIES = [
   { id: "codex", label: "Codex" },
   { id: "claude-code", label: "Claude Code" },
+  // Port-only entry (#266, #255 solution C): the server-side provider model —
+  // the relay harness and web_search engine chain. Read-only projection of
+  // the deployment env; codex/claude-code above remain the external-CLI
+  // provider pages (gap matrix E8 semantics), this is not their revival.
+  { id: "server", label: "Server" },
 ] as const;
 export type SettingsProviderId =
   (typeof SETTINGS_PROVIDER_ENTRIES)[number]["id"];

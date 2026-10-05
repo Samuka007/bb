@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 describe("useSettingsNavState", () => {
-  it("resolves Codex and Claude Code as separate provider pages", () => {
+  it("resolves the provider pages including the port-only Server projection", () => {
     const { result } = renderHook(() => useSettingsNavState(), {
       wrapper: wrapperFor("/settings/providers/claude-code"),
     });
@@ -44,7 +44,16 @@ describe("useSettingsNavState", () => {
     expect(result.current.activeSection).toBeNull();
     expect(
       result.current.providerEntries.map((provider) => provider.id),
-    ).toEqual(["codex", "claude-code"]);
+    ).toEqual(["codex", "claude-code", "server"]);
+  });
+
+  it("resolves the Server provider page (#266)", () => {
+    const { result } = renderHook(() => useSettingsNavState(), {
+      wrapper: wrapperFor("/settings/providers/server"),
+    });
+
+    expect(result.current.activeProviderId).toBe("server");
+    expect(result.current.activeSection).toBeNull();
   });
 
   it("shows the Machines section", () => {
