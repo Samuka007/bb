@@ -817,7 +817,9 @@ function ConfiguredProviderPanel() {
         ))}
         {providers.length === 0 && editor === null && !providersQuery.isPending ? (
           <li className="rounded-md border border-dashed border-border p-3 text-sm text-subtle-foreground">
-            No providers — the deployment serves no env seed and nothing is configured yet.
+            No user-configured providers yet. This section lists only rows stored here (the
+            server's provider_configs 正本); the deployment's declared catalog is read-only on
+            the Server section and keeps serving until you add a provider.
           </li>
         ) : null}
       </ul>
