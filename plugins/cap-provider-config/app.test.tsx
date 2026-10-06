@@ -108,6 +108,21 @@ describe("ConfiguredProviderSettingsSection", () => {
     ]);
   });
 
+  it("an empty user-row list shows the Server-section pointer (#434: user rows only)", async () => {
+    routeMock(({ path }) => {
+      if (path === "/api/v1/system/providers") {
+        return { status: 200, body: { providers: [] } };
+      }
+      return undefined;
+    });
+    renderSection();
+    // #434 point 6: the CRUD face lists ONLY user rows — the deployment's
+    // declared catalog is never a fake row here; the empty state points at
+    // the read-only Server section instead.
+    const emptyState = await screen.findByText(/No user-configured providers yet/);
+    expect(emptyState.textContent).toContain("Server section");
+  });
+
   it("lists configured rows with key presence and warning transcripts", async () => {
     routeMock(({ path }) => {
       if (path === "/api/v1/system/providers") {
