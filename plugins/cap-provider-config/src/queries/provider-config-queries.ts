@@ -32,12 +32,8 @@ export async function fetchWithAppSurface(
   // The host global's full type lives in the app (`types/bb-desktop.d.ts`);
   // the plugin only feature-detects it via `in` (no shape is trusted here).
   const isDesktop =
-    typeof window !== "undefined" && "bbDesktop" in window &&
-    window.bbDesktop !== undefined;
-  headers.set(
-    APP_SURFACE_HEADER_NAME,
-    isDesktop ? "desktop" : "web",
-  );
+    typeof window !== "undefined" && "bbDesktop" in window && window.bbDesktop !== undefined;
+  headers.set(APP_SURFACE_HEADER_NAME, isDesktop ? "desktop" : "web");
   return fetch(input, { ...init, headers });
 }
 
@@ -102,6 +98,13 @@ export const providerConfigRowSchema = z.object({
   dispatchable: z.boolean(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  /**
+   * #388 row provenance on the merged display face: "user" = a stored D1 row
+   * (editable here); "deployment-seed" = an env MODEL_RELAY_CATALOG provider
+   * riding the list read-only (redeploy-managed). Defaults to "user" so an
+   * older server (no source seat yet) keeps every row editable.
+   */
+  source: z.enum(["user", "deployment-seed"]).default("user"),
 });
 
 export type ProviderConfigRow = z.infer<typeof providerConfigRowSchema>;
@@ -159,19 +162,12 @@ function optionalNumber(value: string): number | undefined {
 }
 
 /** Serialize an editor draft into the wire model entry (empty seats drop). */
-export function modelDraftToWire(
-  draft: ProviderConfigModelDraft,
-): ProviderConfigModel {
+export function modelDraftToWire(draft: ProviderConfigModelDraft): ProviderConfigModel {
   if (draft.id.trim() === "") throw new Error("a model row needs an id");
   const reasoningLevels = draft.reasoningLevels;
   const defaultLevel = draft.defaultReasoningLevel;
-  if (
-    defaultLevel !== "" &&
-    !reasoningLevels.includes(defaultLevel as ReasoningLevelOption)
-  ) {
-    throw new Error(
-      `default reasoning level "${defaultLevel}" must be a member of the ladder`,
-    );
+  if (defaultLevel !== "" && !reasoningLevels.includes(defaultLevel as ReasoningLevelOption)) {
+    throw new Error(`default reasoning level "${defaultLevel}" must be a member of the ladder`);
   }
   // A budget edit is either dropped ("" → absent, the deployment scalar
   // rules), cleared (explicit -1 → null = budget-off), or set to the typed
@@ -278,9 +274,7 @@ export const providerConfigDiscoverResponseSchema = z.object({
   warnings: z.array(z.string()),
 });
 
-export type ProviderConfigDiscoverResponse = z.infer<
-  typeof providerConfigDiscoverResponseSchema
->;
+export type ProviderConfigDiscoverResponse = z.infer<typeof providerConfigDiscoverResponseSchema>;
 
 export const providerConfigTestResponseSchema = z.object({
   ok: z.boolean(),
@@ -313,11 +307,7 @@ async function parseErrorBody(response: Response): Promise<string> {
   }
 }
 
-async function requestJson<T>(
-  path: string,
-  init: RequestInit,
-  schema: z.ZodType<T>,
-): Promise<T> {
+async function requestJson<T>(path: string, init: RequestInit, schema: z.ZodType<T>): Promise<T> {
   const response = await fetchWithAppSurface(path, init);
   if (!response.ok) {
     throw new Error(await parseErrorBody(response));
@@ -372,9 +362,7 @@ export async function deleteProviderConfig(id: string): Promise<void> {
   );
 }
 
-export async function testProviderConfig(
-  id: string,
-): Promise<ProviderConfigTestResponse> {
+export async function testProviderConfig(id: string): Promise<ProviderConfigTestResponse> {
   return requestJson(
     `/api/v1/system/providers/${encodeURIComponent(id)}/test`,
     { method: "POST" },

@@ -141,6 +141,54 @@ describe("ConfiguredProviderSettingsSection", () => {
     expect(screen.getByText("No key (mock)")).toBeTruthy();
   });
 
+  it("renders deployment-seed rows read-only beside editable user rows (#388)", async () => {
+    routeMock(({ path }) => {
+      if (path === "/api/v1/system/providers") {
+        return {
+          status: 200,
+          body: {
+            providers: [
+              rowFixture({
+                id: "omp",
+                displayName: "newapi",
+                source: "deployment-seed",
+                baseUrl: "https://newapi.example.com/v1",
+                updatedAt: 0,
+              }),
+              rowFixture(),
+            ],
+          },
+        };
+      }
+      return undefined;
+    });
+    renderSection();
+
+    // The seed row is visible with its provenance badge and read-only note…
+    expect(await screen.findByText("deployment-seed")).toBeTruthy();
+    expect(screen.getByText(/deployment seed \(read-only\)/)).toBeTruthy();
+    // …and offers none of the CRUD affordances (redeploy-managed).
+    expect(screen.queryByRole("button", { name: "Test omp" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit omp" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove omp" })).toBeNull();
+    // The user row keeps every affordance.
+    expect(screen.getByRole("button", { name: "Edit panel-one" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove panel-one" })).toBeTruthy();
+  });
+
+  it("treats rows without a source seat as user rows (older server tolerance)", async () => {
+    routeMock(({ path }) => {
+      if (path === "/api/v1/system/providers") {
+        return { status: 200, body: { providers: [rowFixture()] } };
+      }
+      return undefined;
+    });
+    renderSection();
+    // No source field arrived; the row stays editable rather than vanishing.
+    expect(await screen.findByRole("button", { name: "Edit panel-one" })).toBeTruthy();
+    expect(screen.queryByText("deployment-seed")).toBeNull();
+  });
+
   it("creates a provider with the full model directory in one POST", async () => {
     const calls = routeMock(({ path, init }) => {
       if (path === "/api/v1/system/providers" && (init?.method ?? "GET") === "GET") {
@@ -221,8 +269,9 @@ describe("ConfiguredProviderSettingsSection", () => {
     expect(wireOf(off).thinkingBudgetTokens).toBeNull();
     const set = { ...emptyDraft(), thinkingBudgetTokens: "4096", id: "m" };
     expect(wireOf(set).thinkingBudgetTokens).toBe(4096);
-    expect(() => wireOf({ ...emptyDraft(), thinkingBudgetTokens: "0", id: "m" }))
-      .toThrowError(/positive integer/);
+    expect(() => wireOf({ ...emptyDraft(), thinkingBudgetTokens: "0", id: "m" })).toThrowError(
+      /positive integer/,
+    );
   });
 
   it("edits with the omission-preserving key protocol (omit, set, clear)", async () => {
@@ -287,10 +336,7 @@ describe("ConfiguredProviderSettingsSection", () => {
             status: 200,
             latencyMs: 42,
             error: null,
-            models: [
-              { id: "model-a" },
-              { id: "discovered-b", name: "Discovered B" },
-            ],
+            models: [{ id: "model-a" }, { id: "discovered-b", name: "Discovered B" }],
             warnings: [
               "discovered entry without a usable string id — skipped, never silently dropped",
             ],
@@ -313,15 +359,15 @@ describe("ConfiguredProviderSettingsSection", () => {
       ).toBe(true);
     });
     // Saved-row discovery: providerId anchor, no key material in the body.
-    expect(bodyOf(calls.find((call) => call.path === "/api/v1/system/providers/discover-models"))).toEqual({
+    expect(
+      bodyOf(calls.find((call) => call.path === "/api/v1/system/providers/discover-models")),
+    ).toEqual({
       providerId: "panel-one",
     });
     // Manual row kept; discovered new row appended; warning surfaced.
     expect(screen.getByLabelText("Model 1 id")).toHaveProperty("value", "model-a");
     expect(screen.getByLabelText("Model 2 id")).toHaveProperty("value", "discovered-b");
-    expect(
-      await screen.findByText(/1 new merged/),
-    ).toBeTruthy();
+    expect(await screen.findByText(/1 new merged/)).toBeTruthy();
     expect(screen.getByText(/skipped, never silently dropped/)).toBeTruthy();
   });
 
@@ -436,7 +482,10 @@ describe("ConfiguredProviderSettingsSection", () => {
         return { status: 200, body: { providers: [] } };
       }
       if (path === "/api/v1/system/providers/import-models-yml" && init?.method === "POST") {
-        return { status: 422, body: { code: "import_yaml_invalid", message: "the pasted text is not valid YAML" } };
+        return {
+          status: 422,
+          body: { code: "import_yaml_invalid", message: "the pasted text is not valid YAML" },
+        };
       }
       return undefined;
     });
@@ -447,10 +496,9 @@ describe("ConfiguredProviderSettingsSection", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Import" }));
     await waitFor(() => {
-      expect(toast.error).toHaveBeenCalledWith(
-        "The models.yml import failed",
-        { description: "the pasted text is not valid YAML" },
-      );
+      expect(toast.error).toHaveBeenCalledWith("The models.yml import failed", {
+        description: "the pasted text is not valid YAML",
+      });
     });
     // The failure leaves no verdict transcript behind.
     expect(screen.queryByLabelText("Import verdicts")).toBeNull();

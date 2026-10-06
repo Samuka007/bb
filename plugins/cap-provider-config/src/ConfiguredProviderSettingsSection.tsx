@@ -39,10 +39,7 @@ import {
   pluginQueryClient,
 } from "./plugin-query-client";
 import { SettingsSection } from "./ui/settings-section";
-import {
-  ConfirmDeleteDialog,
-  ConfirmDeleteDialogContent,
-} from "./ui/confirm-delete-dialog";
+import { ConfirmDeleteDialog, ConfirmDeleteDialogContent } from "./ui/confirm-delete-dialog";
 
 /**
  * Settings → Providers → Configured (#362): the USER-face write path onto
@@ -52,6 +49,11 @@ import {
  * probes test-connection — all hot against `/api/v1/system/providers`.
  * (#364) The paste import lifts an omp `~/.omp/agent/models.yml` fragment
  * into the same rows in one request — "cloud = local omp" in one paste.
+ *
+ * (#388) The list face is the MERGED directory truth: env-seed providers no
+ * D1 row overrides render read-only with a deployment-seed badge, so the
+ * panel shows exactly the provider set execution-options serves (the seed
+ * used to be invisible here while the picker kept serving it).
  *
  * Plugin adaptation (#382, zero-core-touch delivery): moved out of the app
  * core into this plugin's settingsSection slot. The plugin owns its
@@ -137,8 +139,7 @@ function ModelRowEditor({
   onChange: (next: ProviderConfigModelDraft) => void;
   onRemove: () => void;
 }) {
-  const update = (patch: Partial<ProviderConfigModelDraft>) =>
-    onChange({ ...draft, ...patch });
+  const update = (patch: Partial<ProviderConfigModelDraft>) => onChange({ ...draft, ...patch });
   const toggleLevel = (level: (typeof REASONING_LEVEL_OPTIONS)[number]) =>
     update({
       reasoningLevels: draft.reasoningLevels.includes(level)
@@ -147,10 +148,7 @@ function ModelRowEditor({
     });
   const label = `Model ${String(index + 1)}`;
   return (
-    <div
-      className="space-y-2 rounded-md border border-border p-3"
-      aria-label={label}
-    >
+    <div className="space-y-2 rounded-md border border-border p-3" aria-label={label}>
       <div className="flex items-center gap-2">
         <span className="text-2xs font-medium text-subtle-foreground">{label}</span>
         <Button
@@ -240,9 +238,7 @@ function ModelRowEditor({
             placeholder="blank = deployment default · -1 off"
             className="h-8 text-xs"
             aria-label={`${label} thinking budget`}
-            onChange={(event) =>
-              update({ thinkingBudgetTokens: event.target.value })
-            }
+            onChange={(event) => update({ thinkingBudgetTokens: event.target.value })}
           />
         </label>
       </div>
@@ -405,10 +401,7 @@ function ConfiguredProviderPanel() {
       if (!verdict.ok) {
         setEditor({
           ...state,
-          notices: [
-            ...state.notices,
-            `Discovery failed: ${verdict.error ?? "upstream error"}`,
-          ],
+          notices: [...state.notices, `Discovery failed: ${verdict.error ?? "upstream error"}`],
         });
         return;
       }
@@ -518,7 +511,7 @@ function ConfiguredProviderPanel() {
   return (
     <SettingsSection
       title="Configured"
-      description="Your own providers, stored server-side and hot-applied — execution options pick up edits on the next request. The API key is write-only: it is encrypted at rest and never shown again. The Server section remains the read-only view of the deployment-env seed."
+      description="The provider directory execution options serve: your configured rows plus the deployment seed (marked deployment-seed — read-only, edits happen at redeploy). Your edits hot-apply on the next request. The API key is write-only: it is encrypted at rest and never shown again."
       action={
         editor === null ? (
           <div className="flex gap-2">
@@ -636,9 +629,7 @@ function ConfiguredProviderPanel() {
                   checked={editor.clearApiKey}
                   disabled={isPending}
                   aria-label="Clear stored API key"
-                  onChange={(event) =>
-                    setEditor({ ...editor, clearApiKey: event.target.checked })
-                  }
+                  onChange={(event) => setEditor({ ...editor, clearApiKey: event.target.checked })}
                 />
                 Clear stored key
               </label>
@@ -655,9 +646,9 @@ function ConfiguredProviderPanel() {
             </Button>
           </div>
           <p className="text-2xs text-subtle-foreground">
-            Discovery reads <code>{"{baseUrl}/models"}</code> (OpenAI models-list) and merges
-            rows below: manual rows stay, discovered ids merge in, unusable entries are
-            reported — never silently dropped.
+            Discovery reads <code>{"{baseUrl}/models"}</code> (OpenAI models-list) and merges rows
+            below: manual rows stay, discovered ids merge in, unusable entries are reported — never
+            silently dropped.
           </p>
           {editor.notices.length > 0 ? (
             <ul className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-2xs text-foreground">
@@ -695,7 +686,9 @@ function ConfiguredProviderPanel() {
               size="sm"
               disabled={isPending}
               aria-label="Add model row"
-              onClick={() => setEditor({ ...editor, models: [...editor.models, emptyModelDraft()] })}
+              onClick={() =>
+                setEditor({ ...editor, models: [...editor.models, emptyModelDraft()] })
+              }
             >
               Add model row
             </Button>
@@ -707,7 +700,11 @@ function ConfiguredProviderPanel() {
               disabled={isPending}
               onClick={() => save.mutate(editor)}
             >
-              {save.isPending ? "Saving…" : editor.editingId !== null ? "Save changes" : "Create provider"}
+              {save.isPending
+                ? "Saving…"
+                : editor.editingId !== null
+                  ? "Save changes"
+                  : "Create provider"}
             </Button>
             <Button
               type="button"
@@ -725,13 +722,22 @@ function ConfiguredProviderPanel() {
       <ul className="space-y-2 pt-1">
         {providers.map((provider) => (
           <li
-            key={provider.id}
+            key={`${provider.source}-${provider.id}`}
             className="flex items-start gap-3 rounded-md border border-border p-3"
           >
             <div className="min-w-0 flex-1 space-y-1">
               <p className="flex items-center gap-2 text-sm text-foreground">
                 {provider.displayName ?? provider.id}
                 <span className="font-mono text-2xs text-subtle-foreground">{provider.id}</span>
+                {provider.source === "deployment-seed" ? (
+                  <Badge
+                    variant="outline"
+                    className="text-2xs font-normal"
+                    title="Served from the deployment env seed (MODEL_RELAY_CATALOG). Read-only here — edits happen at redeploy."
+                  >
+                    deployment-seed
+                  </Badge>
+                ) : null}
                 {provider.api !== null ? (
                   <Badge variant="outline" className="text-2xs font-normal">
                     {provider.api}
@@ -754,10 +760,16 @@ function ConfiguredProviderPanel() {
               <p className="truncate font-mono text-2xs text-subtle-foreground">
                 {provider.baseUrl ?? "no baseUrl"}
               </p>
-              <p className="text-2xs text-subtle-foreground">
-                {provider.models.length} model rows · updated{" "}
-                {new Date(provider.updatedAt).toLocaleString()}
-              </p>
+              {provider.source === "deployment-seed" ? (
+                <p className="text-2xs text-subtle-foreground">
+                  {provider.models.length} model rows · deployment seed (read-only)
+                </p>
+              ) : (
+                <p className="text-2xs text-subtle-foreground">
+                  {provider.models.length} model rows · updated{" "}
+                  {new Date(provider.updatedAt).toLocaleString()}
+                </p>
+              )}
               {provider.warnings.length > 0 ? (
                 <ul className="space-y-0.5 text-2xs text-amber-600">
                   {provider.warnings.map((warning, index) => (
@@ -769,42 +781,43 @@ function ConfiguredProviderPanel() {
                 <p className="text-2xs text-subtle-foreground">{testVerdicts[provider.id]}</p>
               ) : null}
             </div>
-            <div className="flex shrink-0 gap-1.5">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={test.isPending}
-                aria-label={`Test ${provider.id}`}
-                onClick={() => test.mutate(provider.id)}
-              >
-                Test
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                aria-label={`Edit ${provider.id}`}
-                onClick={() => setEditor(editorFromRow(provider))}
-              >
-                Edit
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                aria-label={`Remove ${provider.id}`}
-                onClick={() => setRemoving(provider)}
-              >
-                Remove
-              </Button>
-            </div>
+            {provider.source === "deployment-seed" ? null : (
+              <div className="flex shrink-0 gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={test.isPending}
+                  aria-label={`Test ${provider.id}`}
+                  onClick={() => test.mutate(provider.id)}
+                >
+                  Test
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Edit ${provider.id}`}
+                  onClick={() => setEditor(editorFromRow(provider))}
+                >
+                  Edit
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Remove ${provider.id}`}
+                  onClick={() => setRemoving(provider)}
+                >
+                  Remove
+                </Button>
+              </div>
+            )}
           </li>
         ))}
         {providers.length === 0 && editor === null && !providersQuery.isPending ? (
           <li className="rounded-md border border-dashed border-border p-3 text-sm text-subtle-foreground">
-            No providers configured yet. The deployment env seed (the Server section) still
-            serves until you add one here.
+            No providers — the deployment serves no env seed and nothing is configured yet.
           </li>
         ) : null}
       </ul>
@@ -836,95 +849,97 @@ function ConfiguredProviderPanel() {
           }
         }}
       >
-        <DialogContent>{importOpen ? (
-          <div className="space-y-3">
-            <DialogHeader>
-              <DialogTitle>Import models.yml</DialogTitle>
-              <DialogDescription>
-                Paste an omp ~/.omp/agent/models.yml fragment (the full `providers:` map or a
-                bare fragment of it). Every provider becomes a configured row; an API key rides
-                this one request and is encrypted at rest. omp-only declarations (discovery,
-                headers, compat wire flags, out-of-family api values) are reported — never
-                silently dropped.
-              </DialogDescription>
-            </DialogHeader>
-            <Textarea
-              value={importText}
-              disabled={importYml.isPending}
-              rows={12}
-              className="font-mono text-xs"
-              aria-label="models.yml fragment"
-              placeholder={
-                "providers:\n  my-relay:\n    baseUrl: https://up.example.com/v1\n    api: openai-responses\n    models:\n      - id: my-model"
-              }
-              onChange={(event) => setImportText(event.target.value)}
-            />
-            {importVerdict !== null ? (
-              <div
-                className="space-y-2 rounded-md border border-border p-2 text-2xs"
-                aria-label="Import verdicts"
-              >
-                <p className="text-subtle-foreground">
-                  Created {importVerdict.created} · skipped {importVerdict.skipped}
-                </p>
-                <ul className="space-y-1.5">
-                  {importVerdict.providers.map((entry) => (
-                    <li key={entry.id} className="space-y-0.5">
-                      <p className="flex items-center gap-2 text-foreground">
-                        <span className="font-mono">{entry.id}</span>
-                        <Badge
-                          variant="outline"
-                          className={
-                            entry.verdict === "created"
-                              ? "text-2xs font-normal"
-                              : "border-amber-500/60 text-2xs font-normal"
-                          }
-                        >
-                          {entry.verdict === "created"
-                            ? `created (${entry.modelCount} models)`
-                            : `skipped ${entry.status}`}
-                        </Badge>
-                        {entry.hasApiKey ? null : (
-                          <Badge variant="outline" className="text-2xs font-normal">
-                            No key (mock)
-                          </Badge>
-                        )}
-                      </p>
-                      <p className="text-subtle-foreground">{entry.message}</p>
-                      {entry.warnings.length > 0 ? (
-                        <ul className="space-y-0.5 text-amber-600">
-                          {entry.warnings.map((warning, index) => (
-                            <li key={`${entry.id}-warning-${String(index)}`}>⚠ {warning}</li>
-                          ))}
-                        </ul>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
+        <DialogContent>
+          {importOpen ? (
+            <div className="space-y-3">
+              <DialogHeader>
+                <DialogTitle>Import models.yml</DialogTitle>
+                <DialogDescription>
+                  Paste an omp ~/.omp/agent/models.yml fragment (the full `providers:` map or a bare
+                  fragment of it). Every provider becomes a configured row; an API key rides this
+                  one request and is encrypted at rest. omp-only declarations (discovery, headers,
+                  compat wire flags, out-of-family api values) are reported — never silently
+                  dropped.
+                </DialogDescription>
+              </DialogHeader>
+              <Textarea
+                value={importText}
                 disabled={importYml.isPending}
-                onClick={() => {
-                  setImportOpen(false);
-                  setImportVerdict(null);
-                }}
-              >
-                Close
-              </Button>
-              <Button
-                type="button"
-                disabled={importYml.isPending || importText.trim() === ""}
-                onClick={() => importYml.mutate(importText)}
-              >
-                {importYml.isPending ? "Importing…" : "Import"}
-              </Button>
-            </DialogFooter>
-          </div>
-        ) : null}</DialogContent>
+                rows={12}
+                className="font-mono text-xs"
+                aria-label="models.yml fragment"
+                placeholder={
+                  "providers:\n  my-relay:\n    baseUrl: https://up.example.com/v1\n    api: openai-responses\n    models:\n      - id: my-model"
+                }
+                onChange={(event) => setImportText(event.target.value)}
+              />
+              {importVerdict !== null ? (
+                <div
+                  className="space-y-2 rounded-md border border-border p-2 text-2xs"
+                  aria-label="Import verdicts"
+                >
+                  <p className="text-subtle-foreground">
+                    Created {importVerdict.created} · skipped {importVerdict.skipped}
+                  </p>
+                  <ul className="space-y-1.5">
+                    {importVerdict.providers.map((entry) => (
+                      <li key={entry.id} className="space-y-0.5">
+                        <p className="flex items-center gap-2 text-foreground">
+                          <span className="font-mono">{entry.id}</span>
+                          <Badge
+                            variant="outline"
+                            className={
+                              entry.verdict === "created"
+                                ? "text-2xs font-normal"
+                                : "border-amber-500/60 text-2xs font-normal"
+                            }
+                          >
+                            {entry.verdict === "created"
+                              ? `created (${entry.modelCount} models)`
+                              : `skipped ${entry.status}`}
+                          </Badge>
+                          {entry.hasApiKey ? null : (
+                            <Badge variant="outline" className="text-2xs font-normal">
+                              No key (mock)
+                            </Badge>
+                          )}
+                        </p>
+                        <p className="text-subtle-foreground">{entry.message}</p>
+                        {entry.warnings.length > 0 ? (
+                          <ul className="space-y-0.5 text-amber-600">
+                            {entry.warnings.map((warning, index) => (
+                              <li key={`${entry.id}-warning-${String(index)}`}>⚠ {warning}</li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={importYml.isPending}
+                  onClick={() => {
+                    setImportOpen(false);
+                    setImportVerdict(null);
+                  }}
+                >
+                  Close
+                </Button>
+                <Button
+                  type="button"
+                  disabled={importYml.isPending || importText.trim() === ""}
+                  onClick={() => importYml.mutate(importText)}
+                >
+                  {importYml.isPending ? "Importing…" : "Import"}
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : null}
+        </DialogContent>
       </Dialog>
     </SettingsSection>
   );
