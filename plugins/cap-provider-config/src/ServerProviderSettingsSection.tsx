@@ -3,11 +3,11 @@ import {
   SettingsRowList,
   SettingsSection,
   SettingsWithControl,
-} from "@/components/ui/settings-section";
+} from "./ui/settings-section";
 import {
   useProviderProjections,
   type ProviderProjectionsResponse,
-} from "@/hooks/queries/provider-projection-queries";
+} from "./queries/provider-projection-queries";
 
 /**
  * Settings → Providers → Server (#266). Read-only projection of the
@@ -15,11 +15,17 @@ import {
  * (mode / endpoint host / model / key presence) and the web_search engine
  * chain (order + per-engine credential gates + browser-backed exclusions).
  *
- * There is deliberately no control on this page — the configuration's source
- * of truth is the deployment env (control-plane layer §3.2: secrets and
- * deployment topology never enter the control-plane DB), so the section only
- * projects facts and points at where edits happen (ops/staging-relay.md
- * precedent).
+ * There is deliberately no control on this section — the configuration's
+ * source of truth is the deployment env (control-plane layer §3.2: secrets
+ * and deployment topology never enter the control-plane DB), so the section
+ * only projects facts and points at where edits happen.
+ *
+ * Plugin adaptation (#382): moved verbatim out of the app
+ * (`apps/app/src/components/settings/ServerProviderSettingsSection.tsx`)
+ * once #362 made the user-face write path a plugin section — the app's
+ * core wiring (settings-nav entry, SettingsView branch) reverts to upstream
+ * pristine, and this face renders through the plugin settingsSection slot
+ * instead.
  */
 
 /** One projected fact: label on the left, read-only value on the right. */
@@ -129,7 +135,7 @@ export function ServerProviderSettingsSection() {
   return (
     <SettingsSection
       title="Server"
-      description="Read-only projection of the server-side provider configuration. Editing happens in the deployment env (Worker vars/secrets: MODEL_RELAY_*, AGENT_DO_WEB_SEARCH; per-host: DAEMON_AGENT_AUTH) followed by a redeploy — this page has no write path (ops/staging-relay.md precedent)."
+      description="Read-only projection of the server-side provider configuration. Editing happens in the deployment env (Worker vars/secrets: MODEL_RELAY_*, AGENT_DO_WEB_SEARCH; per-host: DAEMON_AGENT_AUTH) followed by a redeploy — this section has no write path (ops/staging-relay.md precedent)."
     >
       <div className="space-y-4">
         <HarnessRows harness={projections.data.harness} />

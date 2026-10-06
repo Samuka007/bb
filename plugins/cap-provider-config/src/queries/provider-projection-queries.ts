@@ -1,11 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
-import { fetchWithAppSurface } from "@/lib/app-surface";
-import {
-  systemProviderProjectionsQueryKey,
-  type SystemProviderProjectionsQueryKey,
-} from "./query-keys";
-import { SERVER_SESSION_QUERY_POLICY } from "./query-policies";
+import { fetchWithAppSurface } from "./provider-config-queries.js";
 
 /**
  * Provider read-only projections (#266). Port-only face: the fork's server
@@ -13,7 +8,24 @@ import { SERVER_SESSION_QUERY_POLICY } from "./query-policies";
  * source of truth stays the deployment env, this is status only). Typed here
  * against the wire shape instead of `@bb/server-contract`, which ports bb
  * upstream verbatim and has no such endpoint.
+ *
+ * Plugin adaptation (#382): moved verbatim out of the app's
+ * `hooks/queries/provider-projection-queries.ts` with a plugin-local query
+ * key (the app's `query-keys.ts` stays pristine) and the
+ * SERVER_SESSION_QUERY_POLICY constants inlined (they were app-internal).
  */
+
+/** query-policies.ts SERVER_SESSION_QUERY_POLICY: deployment facts are
+ * redeploy-refreshed, not focus-refreshed; a failed first fetch retries on
+ * the next mount. */
+const SERVER_SESSION_QUERY_POLICY = {
+  refetchOnReconnect: false,
+  refetchOnWindowFocus: false,
+  staleTime: 60 * 60_000,
+} as const;
+
+/** Plugin-local key: the app's core query-keys.ts stays pristine (#382). */
+export const PROVIDER_PROJECTIONS_QUERY_KEY = "providerProjections" as const;
 
 const providerWebSearchEngineProjectionSchema = z.object({
   engine: z.string(),
@@ -62,9 +74,9 @@ export function useProviderProjections(
     ProviderProjectionsResponse,
     Error,
     ProviderProjectionsResponse,
-    SystemProviderProjectionsQueryKey
+    readonly [typeof PROVIDER_PROJECTIONS_QUERY_KEY]
   >({
-    queryKey: systemProviderProjectionsQueryKey(),
+    queryKey: [PROVIDER_PROJECTIONS_QUERY_KEY],
     queryFn: async ({ signal }) => {
       const response = await fetchWithAppSurface(
         "/api/v1/system/provider-projections",

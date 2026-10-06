@@ -1,24 +1,42 @@
 // @vitest-environment jsdom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { z } from "zod";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { providerProjectionsResponseSchema } from "@/hooks/queries/provider-projection-queries";
-import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
-import { ServerProviderSettingsSection } from "./ServerProviderSettingsSection";
+import { loadPluginApp } from "@get-bb/plugin-sdk/testing/app";
+import { providerProjectionsResponseSchema } from "./src/queries/provider-projection-queries";
+import { ServerProviderSettingsSection } from "./src/ServerProviderSettingsSection";
+
+/**
+ * #266 the read-only Server projection, migrated into the plugin (#382):
+ * renders the deployment-env projection facts (relay harness + web_search
+ * chain) with credential-gate badges — presence only, never values — and no
+ * write controls anywhere on the face. The plugin bundles its own
+ * react-query copy (the SDK runtime-shims react but not react-query), so
+ * tests supply a plain QueryClientProvider the way the slot-facing section
+ * does.
+ */
 
 const mocks = vi.hoisted(() => ({
-  fetchWithAppSurface: vi.fn(),
+  fetch: vi.fn(),
 }));
 
-vi.mock("@/lib/app-surface", () => ({
-  fetchWithAppSurface: mocks.fetchWithAppSurface,
-}));
+const app = await loadPluginApp(() => import("./app"));
 
 afterEach(() => {
   cleanup();
-  mocks.fetchWithAppSurface.mockReset();
+  mocks.fetch.mockReset();
+  vi.unstubAllGlobals();
 });
+
+function renderSection(): void {
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ServerProviderSettingsSection />
+    </QueryClientProvider>,
+  );
+}
 
 type ProjectionFixture = z.input<typeof providerProjectionsResponseSchema>;
 
@@ -59,11 +77,21 @@ function jsonResponse(body: unknown, status = 200) {
   };
 }
 
+function mockOnce(body: ProjectionFixture): void {
+  mocks.fetch.mockResolvedValue(jsonResponse(body));
+  vi.stubGlobal("fetch", mocks.fetch);
+}
+
 describe("ServerProviderSettingsSection", () => {
+  it("registers a server settingsSection slot on the plugin app", () => {
+    expect(
+      app.settingsSections.some((section: { id: string }) => section.id === "server"),
+    ).toBe(true);
+  });
+
   it("renders the read-only projection with credential gates", async () => {
-    mocks.fetchWithAppSurface.mockResolvedValue(jsonResponse(projectionResponse()));
-    const { wrapper } = createQueryClientTestHarness();
-    render(<ServerProviderSettingsSection />, { wrapper });
+    mockOnce(projectionResponse());
+    renderSection();
 
     // Relay facts.
     await waitFor(() => {
@@ -93,9 +121,8 @@ describe("ServerProviderSettingsSection", () => {
     response.webSearch.decodeError = true;
     response.webSearch.chain = [];
     response.webSearch.timeoutSeconds = null;
-    mocks.fetchWithAppSurface.mockResolvedValue(jsonResponse(response));
-    const { wrapper } = createQueryClientTestHarness();
-    render(<ServerProviderSettingsSection />, { wrapper });
+    mockOnce(response);
+    renderSection();
 
     await waitFor(() => {
       expect(screen.getByText(/failed to decode/)).toBeTruthy();
@@ -107,9 +134,8 @@ describe("ServerProviderSettingsSection", () => {
     const response = projectionResponse();
     response.harness.relayMode = "mock";
     response.harness.relayKeyPresent = false;
-    mocks.fetchWithAppSurface.mockResolvedValue(jsonResponse(response));
-    const { wrapper } = createQueryClientTestHarness();
-    render(<ServerProviderSettingsSection />, { wrapper });
+    mockOnce(response);
+    renderSection();
 
     await waitFor(() => {
       expect(screen.getByText("mock")).toBeTruthy();

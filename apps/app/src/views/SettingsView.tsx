@@ -45,7 +45,6 @@ import { FileOpenersSettingsSection } from "@/components/settings/FileOpenersSet
 import { VoiceInputSettingsSection } from "@/components/settings/VoiceInputSettingsSection";
 import { CommunitySettingsSection } from "@/components/settings/CommunitySettingsSection";
 import { UpdatesSettingsSection } from "@/components/settings/UpdatesSettingsSection";
-import { ServerProviderSettingsSection } from "@/components/settings/ServerProviderSettingsSection";
 import { KeyboardSettingsSection } from "@/components/settings/KeyboardSettingsSection";
 import { MachinesSettingsSection } from "@/components/settings/MachinesSettingsSection";
 import { ArchivedThreadsSettingsSection } from "@/components/settings/ArchivedThreadsSettingsSection";
@@ -1148,12 +1147,6 @@ export function SettingsView() {
   let content: ReactNode = null;
   if (activePluginId !== null) {
     content = <PluginSettingsPage pluginId={activePluginId} />;
-  } else if (activeProviderId === "server") {
-    // Port-only read-only projection face (#266, #255 solution C): the
-    // server-side provider model (relay harness + web_search chain). The
-    // codex/claude-code pages below remain the external-CLI provider
-    // settings (gap matrix E8 semantics) — this is not their revival.
-    content = <ServerProviderSettingsSection />;
   } else if (activeProviderId !== null) {
     const isCodex = activeProviderId === "codex";
     content = (

@@ -58,8 +58,6 @@ export const THREAD_TIMELINE_TURN_SUMMARY_DETAILS_QUERY_KEY =
 export const SYSTEM_PROVIDERS_QUERY_KEY = "systemProviders";
 export const SYSTEM_CONFIG_QUERY_KEY = "systemConfig";
 export const SYSTEM_EXECUTION_OPTIONS_QUERY_KEY = "systemExecutionOptions";
-// Port-only read face (#266): GET /system/provider-projections.
-export const SYSTEM_PROVIDER_PROJECTIONS_QUERY_KEY = "systemProviderProjections";
 export const SYSTEM_CLI_SKILLS_QUERY_KEY = "systemCliSkills";
 export const SYSTEM_VERSION_QUERY_KEY = "systemVersion";
 export const HOST_PROVIDER_CLI_STATUS_QUERY_KEY = "hostProviderCliStatus";
@@ -443,9 +441,6 @@ export type AllSystemProvidersQueryKeyPrefix = readonly [
   typeof SYSTEM_PROVIDERS_QUERY_KEY,
 ];
 export type SystemConfigQueryKey = readonly [typeof SYSTEM_CONFIG_QUERY_KEY];
-export type SystemProviderProjectionsQueryKey = readonly [
-  typeof SYSTEM_PROVIDER_PROJECTIONS_QUERY_KEY,
-];
 export type SystemCliSkillsQueryKey = readonly [
   typeof SYSTEM_CLI_SKILLS_QUERY_KEY,
 ];
@@ -1068,10 +1063,6 @@ export function systemCliSkillsQueryKey(): SystemCliSkillsQueryKey {
 
 export function systemConfigQueryKey(): SystemConfigQueryKey {
   return [SYSTEM_CONFIG_QUERY_KEY];
-}
-
-export function systemProviderProjectionsQueryKey(): SystemProviderProjectionsQueryKey {
-  return [SYSTEM_PROVIDER_PROJECTIONS_QUERY_KEY];
 }
 
 export function systemVersionQueryKey(): SystemVersionQueryKey {
