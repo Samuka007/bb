@@ -3,12 +3,22 @@ import { QueryClient, QueryClientProvider, useMutation } from "@tanstack/react-q
 import { toast } from "sonner";
 import { Badge } from "@bb/shared-ui/badge";
 import { Button } from "@bb/shared-ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@bb/shared-ui/dialog";
 import { Input } from "@bb/shared-ui/input";
+import { Textarea } from "@bb/shared-ui/textarea";
 import {
   createProviderConfig,
   deleteProviderConfig,
   discoverProviderModels,
   emptyModelDraft,
+  importModelsYml,
   modelDraftToWire,
   modelWireToDraft,
   providerApiFamilySuggestions,
@@ -18,6 +28,7 @@ import {
   testProviderConfig,
   useProviderConfigs,
   type ProviderConfigDiscoverResponse,
+  type ProviderConfigImportResponse,
   type ProviderConfigModelDraft,
   type ProviderConfigRow,
   type ProviderConfigTestResponse,
@@ -35,6 +46,8 @@ import {
  * (baseUrl / api family / write-only apiKey / full model directory with
  * per-row thinkingBudgetTokens), pulls upstream /models discovery, and
  * probes test-connection — all hot against `/api/v1/system/providers`.
+ * (#364) The paste import lifts an omp `~/.omp/agent/models.yml` fragment
+ * into the same rows in one request — "cloud = local omp" in one paste.
  *
  * Plugin adaptation (#382, zero-core-touch delivery): moved out of the app
  * core into this plugin's settingsSection slot. The plugin owns its
@@ -376,6 +389,9 @@ function ConfiguredProviderPanel() {
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [removing, setRemoving] = useState<ProviderConfigRow | null>(null);
   const [testVerdicts, setTestVerdicts] = useState<Record<string, string>>({});
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importVerdict, setImportVerdict] = useState<ProviderConfigImportResponse | null>(null);
 
   const discover = useMutation({
     mutationFn: async (state: EditorState): Promise<ProviderConfigDiscoverResponse> => {
@@ -482,6 +498,25 @@ function ConfiguredProviderPanel() {
     },
   });
 
+  // #364 the models.yml paste import: one POST carries the fragment (any
+  // apiKey plaintext rides exactly this body); the verdict transcript is
+  // the honest created/skipped report the panel renders verbatim.
+  const importYml = useMutation({
+    mutationFn: (yaml: string) => importModelsYml(yaml),
+    onSuccess: (verdict) => {
+      setImportVerdict(verdict);
+      invalidate();
+      if (verdict.created > 0) {
+        toast.success(`Imported ${verdict.created} provider${verdict.created === 1 ? "" : "s"}`, {
+          description: "Execution options pick them up on the next request — no redeploy.",
+        });
+      }
+    },
+    onError: (error: Error) => {
+      toast.error("The models.yml import failed", { description: error.message });
+    },
+  });
+
   const isPending = save.isPending || discover.isPending;
 
   return (
@@ -490,9 +525,23 @@ function ConfiguredProviderPanel() {
       description="Your own providers, stored server-side and hot-applied — execution options pick up edits on the next request. The API key is write-only: it is encrypted at rest and never shown again. The Server section remains the read-only view of the deployment-env seed."
       action={
         editor === null ? (
-          <Button type="button" size="sm" onClick={() => setEditor(emptyEditor())}>
-            Add provider
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setImportText("");
+                setImportVerdict(null);
+                setImportOpen(true);
+              }}
+            >
+              Import models.yml
+            </Button>
+            <Button type="button" size="sm" onClick={() => setEditor(emptyEditor())}>
+              Add provider
+            </Button>
+          </div>
         ) : null
       }
     >
@@ -781,6 +830,106 @@ function ConfiguredProviderPanel() {
           onCancel={() => setRemoving(null)}
         />
       </ConfirmDeleteDialog>
+
+      <Dialog
+        open={importOpen}
+        onOpenChange={(open) => {
+          if (!open && !importYml.isPending) {
+            setImportOpen(false);
+            setImportVerdict(null);
+          }
+        }}
+      >
+        <DialogContent>{importOpen ? (
+          <div className="space-y-3">
+            <DialogHeader>
+              <DialogTitle>Import models.yml</DialogTitle>
+              <DialogDescription>
+                Paste an omp ~/.omp/agent/models.yml fragment (the full `providers:` map or a
+                bare fragment of it). Every provider becomes a configured row; an API key rides
+                this one request and is encrypted at rest. omp-only declarations (discovery,
+                headers, compat wire flags, out-of-family api values) are reported — never
+                silently dropped.
+              </DialogDescription>
+            </DialogHeader>
+            <Textarea
+              value={importText}
+              disabled={importYml.isPending}
+              rows={12}
+              className="font-mono text-xs"
+              aria-label="models.yml fragment"
+              placeholder={
+                "providers:\n  my-relay:\n    baseUrl: https://up.example.com/v1\n    api: openai-responses\n    models:\n      - id: my-model"
+              }
+              onChange={(event) => setImportText(event.target.value)}
+            />
+            {importVerdict !== null ? (
+              <div
+                className="space-y-2 rounded-md border border-border p-2 text-2xs"
+                aria-label="Import verdicts"
+              >
+                <p className="text-subtle-foreground">
+                  Created {importVerdict.created} · skipped {importVerdict.skipped}
+                </p>
+                <ul className="space-y-1.5">
+                  {importVerdict.providers.map((entry) => (
+                    <li key={entry.id} className="space-y-0.5">
+                      <p className="flex items-center gap-2 text-foreground">
+                        <span className="font-mono">{entry.id}</span>
+                        <Badge
+                          variant="outline"
+                          className={
+                            entry.verdict === "created"
+                              ? "text-2xs font-normal"
+                              : "border-amber-500/60 text-2xs font-normal"
+                          }
+                        >
+                          {entry.verdict === "created"
+                            ? `created (${entry.modelCount} models)`
+                            : `skipped ${entry.status}`}
+                        </Badge>
+                        {entry.hasApiKey ? null : (
+                          <Badge variant="outline" className="text-2xs font-normal">
+                            No key (mock)
+                          </Badge>
+                        )}
+                      </p>
+                      <p className="text-subtle-foreground">{entry.message}</p>
+                      {entry.warnings.length > 0 ? (
+                        <ul className="space-y-0.5 text-amber-600">
+                          {entry.warnings.map((warning, index) => (
+                            <li key={`${entry.id}-warning-${String(index)}`}>⚠ {warning}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={importYml.isPending}
+                onClick={() => {
+                  setImportOpen(false);
+                  setImportVerdict(null);
+                }}
+              >
+                Close
+              </Button>
+              <Button
+                type="button"
+                disabled={importYml.isPending || importText.trim() === ""}
+                onClick={() => importYml.mutate(importText)}
+              >
+                {importYml.isPending ? "Importing…" : "Import"}
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : null}</DialogContent>
+      </Dialog>
     </SettingsSection>
   );
 }

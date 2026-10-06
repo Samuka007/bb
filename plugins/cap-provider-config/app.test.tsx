@@ -2,6 +2,7 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import {
   ConfiguredProviderSettingsSection,
@@ -26,6 +27,10 @@ const app = await loadPluginApp(() => import("./app"));
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
 }));
+
+// sonner renders toasts into a portal no test container mounts — assert the
+// calls instead (the plugin's only sonner import is the toast object).
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 afterEach(() => {
   cleanup();
@@ -353,6 +358,104 @@ describe("ConfiguredProviderSettingsSection", () => {
     await waitFor(() => {
       expect(calls.some((call) => call.init?.method === "DELETE")).toBe(true);
     });
+  });
+
+  it("imports a pasted models.yml fragment and renders per-provider verdicts", async () => {
+    const calls = routeMock(({ path, init }) => {
+      if (path === "/api/v1/system/providers" && (init?.method ?? "GET") === "GET") {
+        return { status: 200, body: { providers: [] } };
+      }
+      if (path === "/api/v1/system/providers/import-models-yml" && init?.method === "POST") {
+        return {
+          status: 200,
+          body: {
+            providers: [
+              {
+                id: "good-relay",
+                verdict: "created",
+                status: 201,
+                code: "created",
+                message: 'provider "good-relay" created with 1 model rows',
+                modelCount: 1,
+                hasApiKey: true,
+                warnings: [],
+              },
+              {
+                id: "doomed",
+                verdict: "skipped",
+                status: 422,
+                code: "unsupported_api",
+                message:
+                  'provider "doomed": api "azure-openai-responses" has no cloud adaptor yet ' +
+                  "— 暂不支持该协议 (supported: anthropic-messages, openai-responses, openai-completions)",
+                modelCount: 0,
+                hasApiKey: false,
+                warnings: [],
+              },
+            ],
+            created: 1,
+            skipped: 1,
+          },
+        };
+      }
+      return undefined;
+    });
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Import models.yml" }));
+    fireEvent.change(screen.getByLabelText("models.yml fragment"), {
+      target: {
+        value:
+          "providers:\n  good-relay:\n    api: openai-responses\n    models:\n      - id: m\n  doomed:\n    api: azure-openai-responses\n",
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    await waitFor(() => {
+      expect(
+        calls.some(
+          (call) =>
+            call.path === "/api/v1/system/providers/import-models-yml" &&
+            call.init?.method === "POST",
+        ),
+      ).toBe(true);
+    });
+    // The fragment rides ONE POST body, verbatim.
+    const posted = bodyOf(
+      calls.find((call) => call.path === "/api/v1/system/providers/import-models-yml"),
+    );
+    expect(typeof posted.yaml).toBe("string");
+    expect(posted.yaml).toContain("good-relay");
+    // The verdict transcript is the honest per-provider report.
+    expect(await screen.findByLabelText("Import verdicts")).toBeTruthy();
+    expect(screen.getByText("Created 1 · skipped 1")).toBeTruthy();
+    expect(screen.getByText("created (1 models)")).toBeTruthy();
+    expect(screen.getByText("skipped 422")).toBeTruthy();
+    expect(screen.getByText(/no cloud adaptor yet/)).toBeTruthy();
+  });
+
+  it("surfaces a hard import failure (invalid YAML) through the toast path", async () => {
+    routeMock(({ path, init }) => {
+      if (path === "/api/v1/system/providers" && (init?.method ?? "GET") === "GET") {
+        return { status: 200, body: { providers: [] } };
+      }
+      if (path === "/api/v1/system/providers/import-models-yml" && init?.method === "POST") {
+        return { status: 422, body: { code: "import_yaml_invalid", message: "the pasted text is not valid YAML" } };
+      }
+      return undefined;
+    });
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Import models.yml" }));
+    fireEvent.change(screen.getByLabelText("models.yml fragment"), {
+      target: { value: "providers: [unclosed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith(
+        "The models.yml import failed",
+        { description: "the pasted text is not valid YAML" },
+      );
+    });
+    // The failure leaves no verdict transcript behind.
+    expect(screen.queryByLabelText("Import verdicts")).toBeNull();
   });
 });
 

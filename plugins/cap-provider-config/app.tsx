@@ -23,7 +23,8 @@ export default definePluginApp((app) => {
   app.slots.settingsSection({
     id: "configured",
     title: "Configured",
-    description: "User-configurable providers — add, edit, probe, remove; hot-applied.",
+    description:
+      "User-configurable providers — add, import models.yml, edit, probe, remove; hot-applied.",
     component: ConfiguredProviderSettingsSection,
   });
   app.slots.settingsSection({

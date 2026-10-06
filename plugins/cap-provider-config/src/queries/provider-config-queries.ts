@@ -394,6 +394,45 @@ export async function discoverProviderModels(body: {
   );
 }
 
+/**
+ * One per-provider verdict from the models.yml import (#364). `created`
+ * rows report HTTP-grade 201; every refusal is a named code with its
+ * HTTP-grade status (409 exists/reserved, 422 unsupported api / master-key
+ * gate) — an out-of-family api value is an explicit 422 unsupported_api
+ * verdict, never a silent drop. `warnings` is the migration transcript.
+ */
+export const providerConfigImportEntrySchema = z.object({
+  id: z.string().min(1),
+  verdict: z.enum(["created", "skipped"]),
+  status: z.number().int(),
+  code: z.string().min(1),
+  message: z.string(),
+  modelCount: z.number().int().nonnegative(),
+  hasApiKey: z.boolean(),
+  warnings: z.array(z.string()),
+});
+
+export const providerConfigImportResponseSchema = z.object({
+  providers: z.array(providerConfigImportEntrySchema),
+  created: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+});
+
+export type ProviderConfigImportResponse = z.infer<typeof providerConfigImportResponseSchema>;
+
+/**
+ * The paste import (#364): the pasted YAML text rides ONE request body;
+ * the server encrypts any apiKey through the #362 chain and never echoes
+ * it back (verdicts carry hasApiKey presence only).
+ */
+export async function importModelsYml(yaml: string): Promise<ProviderConfigImportResponse> {
+  return requestJson(
+    "/api/v1/system/providers/import-models-yml",
+    jsonInit("POST", { yaml }),
+    providerConfigImportResponseSchema,
+  );
+}
+
 export function useProviderConfigs(options: { enabled?: boolean } = {}): {
   data?: ProviderConfigRow[];
   error: Error | null;
