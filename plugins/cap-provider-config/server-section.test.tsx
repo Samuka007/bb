@@ -1,21 +1,22 @@
 // @vitest-environment jsdom
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { z } from "zod";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadPluginApp } from "@get-bb/plugin-sdk/testing/app";
+import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { providerProjectionsResponseSchema } from "./src/queries/provider-projection-queries";
 import { ServerProviderSettingsSection } from "./src/ServerProviderSettingsSection";
+import { resetPluginQueryClientForTest } from "./src/plugin-query-client";
 
 /**
  * #266 the read-only Server projection, migrated into the plugin (#382):
  * renders the deployment-env projection facts (relay harness + web_search
  * chain) with credential-gate badges — presence only, never values — and no
  * write controls anywhere on the face. The plugin bundles its own
- * react-query copy (the SDK runtime-shims react but not react-query), so
- * tests supply a plain QueryClientProvider the way the slot-facing section
- * does.
+ * react-query copy (the SDK runtime-shims react but not react-query); the
+ * slot-facing section supplies its own QueryClientProvider (#387), so the
+ * tests mount the REGISTERED slot — the exact shape production mounts — with
+ * no test-side wrapper that could mask a missing provider again.
  */
 
 const mocks = vi.hoisted(() => ({
@@ -28,14 +29,19 @@ afterEach(() => {
   cleanup();
   mocks.fetch.mockReset();
   vi.unstubAllGlobals();
+  // The sections share the module-singleton client (one per page load); a
+  // stale fixture from a previous case would mask the next case's mock.
+  resetPluginQueryClientForTest();
 });
 
 function renderSection(): void {
-  render(
-    <QueryClientProvider client={new QueryClient()}>
-      <ServerProviderSettingsSection />
-    </QueryClientProvider>,
+  const server = app.settingsSections.find(
+    (section: { id: string }) => section.id === "server",
   );
+  if (server === undefined) {
+    throw new Error("the plugin app must register the server settingsSection");
+  }
+  renderSlot(server, {});
 }
 
 type ProjectionFixture = z.input<typeof providerProjectionsResponseSchema>;
@@ -87,6 +93,20 @@ describe("ServerProviderSettingsSection", () => {
     expect(
       app.settingsSections.some((section: { id: string }) => section.id === "server"),
     ).toBe(true);
+  });
+
+  // #387 regression: the staging SPA mounted this section with no
+  // QueryClientProvider above it (the host's provider is not inheritable),
+  // the useQuery inside threw "No QueryClient set", and the per-slot error
+  // boundary disabled the section for the session. The slot-facing export
+  // must therefore mount bare — no test-side wrapper — and still render.
+  it("mounts bare with no test-side QueryClientProvider (#387)", async () => {
+    mockOnce(projectionResponse());
+    render(<ServerProviderSettingsSection />);
+
+    await waitFor(() => {
+      expect(screen.getByText("anthropic")).toBeTruthy();
+    });
   });
 
   it("renders the read-only projection with credential gates", async () => {

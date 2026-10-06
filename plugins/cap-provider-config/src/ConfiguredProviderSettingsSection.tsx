@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { QueryClient, QueryClientProvider, useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Badge } from "@bb/shared-ui/badge";
 import { Button } from "@bb/shared-ui/button";
@@ -34,6 +34,10 @@ import {
   type ProviderConfigTestResponse,
 } from "./queries/provider-config-queries";
 import { PROVIDER_PROJECTIONS_QUERY_KEY } from "./queries/provider-projection-queries";
+import {
+  PluginQueryProvider,
+  pluginQueryClient,
+} from "./plugin-query-client";
 import { SettingsSection } from "./ui/settings-section";
 import {
   ConfirmDeleteDialog,
@@ -58,14 +62,6 @@ import {
  * host's realtime registry maps to execution-options/provider invalidation
  * — no host-side invalidation hook is reachable from a plugin bundle.
  */
-
-/** The plugin's own query cache, one per page load (module singleton). */
-const pluginQueryClient = new QueryClient();
-
-/** Test seam: clear the singleton cache between cases. */
-export function resetPluginQueryClientForTest(): void {
-  pluginQueryClient.clear();
-}
 
 interface EditorState {
   /** null = the add form; otherwise the row being edited. */
@@ -941,8 +937,8 @@ function ConfiguredProviderPanel() {
  */
 export function ConfiguredProviderSettingsSection() {
   return (
-    <QueryClientProvider client={pluginQueryClient}>
+    <PluginQueryProvider>
       <ConfiguredProviderPanel />
-    </QueryClientProvider>
+    </PluginQueryProvider>
   );
 }

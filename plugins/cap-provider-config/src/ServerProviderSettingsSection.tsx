@@ -8,6 +8,7 @@ import {
   useProviderProjections,
   type ProviderProjectionsResponse,
 } from "./queries/provider-projection-queries";
+import { PluginQueryProvider } from "./plugin-query-client";
 
 /**
  * Settings → Providers → Server (#266). Read-only projection of the
@@ -116,7 +117,7 @@ function WebSearchRows({
   );
 }
 
-export function ServerProviderSettingsSection() {
+function ServerProviderPanel() {
   const projections = useProviderProjections();
   if (projections.isPending || projections.data === undefined) {
     return (
@@ -142,5 +143,21 @@ export function ServerProviderSettingsSection() {
         <WebSearchRows webSearch={projections.data.webSearch} />
       </div>
     </SettingsSection>
+  );
+}
+
+/**
+ * The slot-facing component: supplies the plugin's own query cache (#387).
+ * The plugin bundles its own react-query copy (the SDK runtime-shims react
+ * but NOT react-query), so the host's provider is on a different context
+ * object and cannot be inherited — mounting this section bare throws "No
+ * QueryClient set" and the per-slot error boundary disables the section for
+ * the session.
+ */
+export function ServerProviderSettingsSection() {
+  return (
+    <PluginQueryProvider>
+      <ServerProviderPanel />
+    </PluginQueryProvider>
   );
 }

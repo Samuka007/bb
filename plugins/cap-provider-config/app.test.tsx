@@ -4,10 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
-import {
-  ConfiguredProviderSettingsSection,
-  resetPluginQueryClientForTest,
-} from "./src/ConfiguredProviderSettingsSection";
+import { ConfiguredProviderSettingsSection } from "./src/ConfiguredProviderSettingsSection";
+import { resetPluginQueryClientForTest } from "./src/plugin-query-client";
 import { modelDraftToWire } from "./src/queries/provider-config-queries";
 
 /**
