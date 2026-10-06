@@ -46,6 +46,7 @@ import { VoiceInputSettingsSection } from "@/components/settings/VoiceInputSetti
 import { CommunitySettingsSection } from "@/components/settings/CommunitySettingsSection";
 import { UpdatesSettingsSection } from "@/components/settings/UpdatesSettingsSection";
 import { ServerProviderSettingsSection } from "@/components/settings/ServerProviderSettingsSection";
+import { ConfiguredProviderSettingsSection } from "@/components/settings/ConfiguredProviderSettingsSection";
 import { KeyboardSettingsSection } from "@/components/settings/KeyboardSettingsSection";
 import { MachinesSettingsSection } from "@/components/settings/MachinesSettingsSection";
 import { ArchivedThreadsSettingsSection } from "@/components/settings/ArchivedThreadsSettingsSection";
@@ -1148,6 +1149,10 @@ export function SettingsView() {
   let content: ReactNode = null;
   if (activePluginId !== null) {
     content = <PluginSettingsPage pluginId={activePluginId} />;
+  } else if (activeProviderId === "configured") {
+    // The user-face write path (#362): CRUD onto the D1 provider_configs
+    // 正本 — user-configurable providers, hot-applied without a redeploy.
+    content = <ConfiguredProviderSettingsSection />;
   } else if (activeProviderId === "server") {
     // Port-only read-only projection face (#266, #255 solution C): the
     // server-side provider model (relay harness + web_search chain). The

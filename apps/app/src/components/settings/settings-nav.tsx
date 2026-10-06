@@ -40,6 +40,9 @@ export type SettingsSectionId = SettingsNavSection["id"];
 export const SETTINGS_PROVIDER_ENTRIES = [
   { id: "codex", label: "Codex" },
   { id: "claude-code", label: "Claude Code" },
+  // The user-face write path (#362): CRUD onto the server's D1
+  // provider_configs 正本 — user-configurable providers, hot-applied.
+  { id: "configured", label: "Configured" },
   // Port-only entry (#266, #255 solution C): the server-side provider model —
   // the relay harness and web_search engine chain. Read-only projection of
   // the deployment env; codex/claude-code above remain the external-CLI

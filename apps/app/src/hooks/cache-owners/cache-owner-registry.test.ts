@@ -64,6 +64,11 @@ const CACHE_OWNER_QUERY_KEY_IMPORTS: CacheOwnerQueryKeyImportRegistry = {
     "threadQueuedMessagesQueryKey",
     "threadTimelineQueryKey",
   ],
+  "hooks/cache-owners/provider-config-cache-owner.ts": [
+    "SYSTEM_PROVIDER_PROJECTIONS_QUERY_KEY",
+    "SYSTEM_PROVIDERS_QUERY_KEY",
+    "allSystemExecutionOptionsQueryKeyPrefix",
+  ],
   "hooks/cache-owners/cache-invalidation-groups.ts": [
     "allProjectPathsQueryKeyPrefix",
     "allProjectSourceBranchesQueryKeyPrefix",

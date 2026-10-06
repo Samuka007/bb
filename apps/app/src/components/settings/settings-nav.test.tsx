@@ -44,7 +44,7 @@ describe("useSettingsNavState", () => {
     expect(result.current.activeSection).toBeNull();
     expect(
       result.current.providerEntries.map((provider) => provider.id),
-    ).toEqual(["codex", "claude-code", "server"]);
+    ).toEqual(["codex", "claude-code", "configured", "server"]);
   });
 
   it("resolves the Server provider page (#266)", () => {
@@ -53,6 +53,15 @@ describe("useSettingsNavState", () => {
     });
 
     expect(result.current.activeProviderId).toBe("server");
+    expect(result.current.activeSection).toBeNull();
+  });
+
+  it("resolves the Configured provider page (#362)", () => {
+    const { result } = renderHook(() => useSettingsNavState(), {
+      wrapper: wrapperFor("/settings/providers/configured"),
+    });
+
+    expect(result.current.activeProviderId).toBe("configured");
     expect(result.current.activeSection).toBeNull();
   });
 
