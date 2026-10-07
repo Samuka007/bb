@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { ConfiguredProviderSettingsSection } from "./src/ConfiguredProviderSettingsSection";
 import { resetPluginQueryClientForTest } from "./src/plugin-query-client";
-import { modelDraftToWire } from "./src/queries/provider-config-queries";
+import {
+  modelApiFamilySchema,
+  modelDraftToWire,
+  providerApiFamilySchema,
+} from "./src/queries/provider-config-queries";
 
 /**
  * #362 the user-face provider panel, delivered as a plugin section (#382):
@@ -35,6 +39,23 @@ afterEach(() => {
   mocks.fetch.mockReset();
   vi.unstubAllGlobals();
   resetPluginQueryClientForTest();
+});
+
+// jsdom ships neither the pointer-capture API nor scrollIntoView; Radix's
+// Select trigger probes hasPointerCapture on every pointerdown before it
+// will open, and its content focuses + scrolls the highlighted item on
+// mount. This file installs the no-ops (what a real browser reports for an
+// element with no active capture and a no-scroll container).
+const elementPrototype = window.Element.prototype as unknown as Record<string, unknown>;
+beforeAll(() => {
+  elementPrototype.hasPointerCapture ??= () => false;
+  elementPrototype.releasePointerCapture ??= () => {};
+  elementPrototype.scrollIntoView ??= () => {};
+});
+afterAll(() => {
+  delete elementPrototype.hasPointerCapture;
+  delete elementPrototype.releasePointerCapture;
+  delete elementPrototype.scrollIntoView;
 });
 
 function jsonResponse(body: unknown, status = 200) {
@@ -99,6 +120,54 @@ function renderSection(): void {
   // its own react-query copy — the host's provider is not inheritable).
   renderSlot(configured, {});
 }
+
+/**
+ * Drive a Radix Select in jsdom. The trigger opens on pointerdown (Radix
+ * never opens on click); the option then selects through its click path —
+ * the item's pointer-type ref never saw a pointerdown, so Radix treats the
+ * pointer as touch and handleSelect fires on click. The open popper
+ * positions through ResizeObserver, which jsdom lacks.
+ */
+async function openFamilySelect(ariaLabel: string): Promise<void> {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    },
+  );
+  fireEvent.pointerDown(screen.getByLabelText(ariaLabel), {
+    button: 0,
+    ctrlKey: false,
+    pointerType: "mouse",
+  });
+  await screen.findByRole("listbox");
+}
+
+async function pickFamilySelect(ariaLabel: string, optionLabel: string): Promise<void> {
+  await openFamilySelect(ariaLabel);
+  fireEvent.click(screen.getByRole("option", { name: optionLabel }));
+}
+
+describe("contract api-family vocabulary (#452)", () => {
+  it("mirrors the server contract exactly — one source per seat", () => {
+    // The model seat: @cap/agent-do relayCatalogModelSchema.api (relayApiValues).
+    expect([...modelApiFamilySchema.options]).toEqual([
+      "anthropic-messages",
+      "openai-responses",
+      "openai-completions",
+    ]);
+    // The provider seat: relayCatalogProviderSchema.api = relay faces + the
+    // #362 image-source family.
+    expect([...providerApiFamilySchema.options]).toEqual([
+      "anthropic-messages",
+      "openai-responses",
+      "openai-completions",
+      "openai-images",
+    ]);
+  });
+});
 
 describe("ConfiguredProviderSettingsSection", () => {
   it("registers the two settingsSection slots in canonical order", () => {
@@ -226,9 +295,7 @@ describe("ConfiguredProviderSettingsSection", () => {
     fireEvent.change(screen.getByLabelText("Provider base URL"), {
       target: { value: "https://up.example.com/v1" },
     });
-    fireEvent.change(screen.getByLabelText("Provider api family"), {
-      target: { value: "anthropic" },
-    });
+    await pickFamilySelect("Provider api family", "anthropic-messages");
     fireEvent.change(screen.getByLabelText("API key"), {
       target: { value: "sk-create-362" },
     });
@@ -261,7 +328,7 @@ describe("ConfiguredProviderSettingsSection", () => {
     expect(posted.id).toBe("my-provider");
     expect(posted.displayName).toBe("My Provider");
     expect(posted.baseUrl).toBe("https://up.example.com/v1");
-    expect(posted.api).toBe("anthropic");
+    expect(posted.api).toBe("anthropic-messages");
     expect(posted.apiKey).toBe("sk-create-362");
     expect(posted.models).toEqual([
       {
@@ -286,6 +353,104 @@ describe("ConfiguredProviderSettingsSection", () => {
     expect(wireOf(set).thinkingBudgetTokens).toBe(4096);
     expect(() => wireOf({ ...emptyDraft(), thinkingBudgetTokens: "0", id: "m" })).toThrowError(
       /positive integer/,
+    );
+  });
+
+  it("offers the provider seat as a dropdown listing all four contract families (#452)", async () => {
+    routeMock(({ path }) => {
+      if (path === "/api/v1/system/providers") {
+        return { status: 200, body: { providers: [rowFixture()] } };
+      }
+      return undefined;
+    });
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit panel-one" }));
+
+    // The stored contract family rides the trigger caption…
+    expect(screen.getByLabelText("Provider api family").textContent).toBe("openai-responses");
+    // …and the dropdown is the FULL server vocabulary: the relay chat faces
+    // plus the image-source family. "anthropic" — the old datalist's
+    // suggestion — is not a contract label and is never offered again.
+    await openFamilySelect("Provider api family");
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Provider default",
+      "anthropic-messages",
+      "openai-responses",
+      "openai-completions",
+      "openai-images",
+    ]);
+  });
+
+  it("offers the model seat only the relay chat faces (openai-images would 422) (#452)", async () => {
+    routeMock(({ path }) => {
+      if (path === "/api/v1/system/providers") {
+        return { status: 200, body: { providers: [rowFixture()] } };
+      }
+      return undefined;
+    });
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit panel-one" }));
+
+    // Unset shows the inherit caption; the model seat never offers the
+    // image-source family — the server rejects it on model rows, so the old
+    // shared free-text list would have recreated the 422.
+    expect(screen.getByLabelText("Model 1 api family").textContent).toBe(
+      "Inherit provider family",
+    );
+    await openFamilySelect("Model 1 api family");
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Inherit provider family",
+      "anthropic-messages",
+      "openai-responses",
+      "openai-completions",
+    ]);
+  });
+
+  it("keeps a legacy off-contract family visible and replaceable, never silently rewritten (#452)", async () => {
+    const calls = routeMock(({ path, init }) => {
+      if (path === "/api/v1/system/providers" && (init?.method ?? "GET") === "GET") {
+        return {
+          status: 200,
+          body: { providers: [rowFixture({ api: "anthropic" })] },
+        };
+      }
+      if (path === "/api/v1/system/providers/panel-one" && init?.method === "PUT") {
+        return { status: 200, body: rowFixture({ api: "anthropic-messages" }) };
+      }
+      return undefined;
+    });
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit panel-one" }));
+
+    // The pre-contract stored value is not hidden behind the placeholder: it
+    // rides the caption and stays selectable as an explicit out-of-contract
+    // entry.
+    expect(screen.getByLabelText("Provider api family").textContent).toBe("anthropic");
+    await openFamilySelect("Provider api family");
+    const legacyOption = screen.getByRole("option", { name: "Out of contract · anthropic" });
+    // Selecting it re-commits the same value (and closes the overlay — while
+    // a Radix overlay is open the form beneath is aria-hidden).
+    fireEvent.click(legacyOption);
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.getByLabelText("Provider api family").textContent).toBe("anthropic");
+
+    // Saving untouched keeps the stored value (no silent rewrite)…
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => {
+      expect(calls.some((call) => call.init?.method === "PUT")).toBe(true);
+    });
+    expect(bodyOf(calls.find((call) => call.init?.method === "PUT")).api).toBe("anthropic");
+
+    // …and picking a contract family replaces it with exactly that label.
+    fireEvent.click(await screen.findByRole("button", { name: "Edit panel-one" }));
+    await pickFamilySelect("Provider api family", "anthropic-messages");
+    expect(screen.getByLabelText("Provider api family").textContent).toBe("anthropic-messages");
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => {
+      expect(calls.filter((call) => call.init?.method === "PUT")).toHaveLength(2);
+    });
+    expect(bodyOf(calls.filter((call) => call.init?.method === "PUT")[1]).api).toBe(
+      "anthropic-messages",
     );
   });
 

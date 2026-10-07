@@ -12,6 +12,13 @@ import {
   DialogTitle,
 } from "@bb/shared-ui/dialog";
 import { Input } from "@bb/shared-ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@bb/shared-ui/select";
 import { Textarea } from "@bb/shared-ui/textarea";
 import {
   createProviderConfig,
@@ -21,7 +28,8 @@ import {
   importModelsYml,
   modelDraftToWire,
   modelWireToDraft,
-  providerApiFamilySuggestions,
+  modelApiFamilySchema,
+  providerApiFamilySchema,
   PROVIDER_CONFIGS_QUERY_KEY,
   REASONING_LEVEL_OPTIONS,
   replaceProviderConfig,
@@ -125,6 +133,61 @@ function testVerdictText(verdict: ProviderConfigTestResponse): string {
   return `Failed: ${verdict.error ?? "unreachable"}`;
 }
 
+/**
+ * The unset sentinel for the family Select (Radix items reject empty-string
+ * values); selecting it maps back to "" — no api seat on the wire, so the
+ * server's fallback chain rules (model row → provider row → the relay
+ * default face).
+ */
+const DEFAULT_API_FAMILY = "__default__";
+
+/**
+ * The api-family control (#452): a single-select over the server contract's
+ * vocabulary. It replaces the free-text Input+datalist whose suggested
+ * "anthropic" was a label the contract rejects — 422 validation_failed at
+ * the model seat, a skip-with-warning stranded row at the provider seat. A
+ * stored value that predates the contract stays visible as an explicit
+ * out-of-contract entry (never hidden behind the placeholder, never silently
+ * rewritten); picking any contract family replaces it.
+ */
+function ApiFamilySelect({
+  value,
+  options,
+  unsetLabel,
+  ariaLabel,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  options: readonly string[];
+  unsetLabel: string;
+  ariaLabel: string;
+  disabled: boolean;
+  onChange: (next: string) => void;
+}) {
+  const offContract = value !== "" && !options.includes(value);
+  return (
+    <Select
+      value={value === "" ? DEFAULT_API_FAMILY : value}
+      disabled={disabled}
+      onValueChange={(next) => onChange(next === DEFAULT_API_FAMILY ? "" : next)}
+    >
+      <SelectTrigger aria-label={ariaLabel} className="h-8 font-mono text-xs">
+        <SelectValue>{value === "" ? unsetLabel : value}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={DEFAULT_API_FAMILY}>{unsetLabel}</SelectItem>
+        {offContract ? <SelectItem value={value}>Out of contract · {value}</SelectItem> : null}
+        {options.map((family) => (
+          <SelectItem key={family} value={family}>
+            {family}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 /** One model row inside the editor grid — every catalog seat visible. */
 function ModelRowEditor({
   index,
@@ -185,13 +248,13 @@ function ModelRowEditor({
         </label>
         <label className="space-y-1 text-2xs text-subtle-foreground">
           API family
-          <Input
+          <ApiFamilySelect
             value={draft.api}
+            options={modelApiFamilySchema.options}
+            unsetLabel="Inherit provider family"
+            ariaLabel={`${label} api family`}
             disabled={disabled}
-            list="provider-api-family-options"
-            className="h-8 font-mono text-xs"
-            aria-label={`${label} api family`}
-            onChange={(event) => update({ api: event.target.value })}
+            onChange={(api) => update({ api })}
           />
         </label>
         <label className="space-y-1 text-2xs text-subtle-foreground">
@@ -579,20 +642,14 @@ function ConfiguredProviderPanel() {
             </label>
             <label className="space-y-1 text-2xs text-subtle-foreground">
               API family
-              <Input
+              <ApiFamilySelect
                 value={editor.api}
+                options={providerApiFamilySchema.options}
+                unsetLabel="Provider default"
+                ariaLabel="Provider api family"
                 disabled={isPending}
-                list="provider-api-family-options"
-                placeholder="anthropic | openai-responses"
-                className="h-8 font-mono text-xs"
-                aria-label="Provider api family"
-                onChange={(event) => setEditor({ ...editor, api: event.target.value })}
+                onChange={(api) => setEditor({ ...editor, api })}
               />
-              <datalist id="provider-api-family-options">
-                {providerApiFamilySuggestions.map((family) => (
-                  <option key={family} value={family} />
-                ))}
-              </datalist>
             </label>
           </div>
           <div className="flex flex-wrap items-center gap-4 text-2xs text-subtle-foreground">

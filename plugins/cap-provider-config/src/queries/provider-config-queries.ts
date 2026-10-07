@@ -40,11 +40,34 @@ export async function fetchWithAppSurface(
 /** Query keys live plugin-local: the app's core query-keys.ts stays pristine. */
 export const PROVIDER_CONFIGS_QUERY_KEY = "providerConfigs" as const;
 
-export const providerApiFamilySuggestions = [
-  "anthropic",
+/**
+ * The per-model api seat vocabulary (#452): the server contract validates
+ * model rows against @cap/agent-do's `relayCatalogModelSchema`, whose api
+ * seat admits ONLY the three relay chat faces (`relayApiValues`,
+ * packages/agent-do/src/provider-catalog.ts) — anything else is a 422
+ * validation_failed on POST/PUT. This zod enum is the panel's ONE source for
+ * that seat: the model-row family control renders exactly `.options`, so the
+ * editor can no longer suggest an off-contract label ("anthropic" used to
+ * ride the free-text datalist straight into the 422).
+ */
+export const modelApiFamilySchema = z.enum([
+  "anthropic-messages",
   "openai-responses",
   "openai-completions",
-] as const;
+]);
+export type ModelApiFamily = z.infer<typeof modelApiFamilySchema>;
+
+/**
+ * The provider-level api seat vocabulary (#452): the server resolves provider
+ * rows through `relayCatalogProviderSchema` — `relayApiValues` PLUS the #362
+ * image-source family (`IMAGE_SOURCE_API_FAMILY`; an api=openai-images row is
+ * the generate_image source, never an LLM chat provider). The seat is
+ * optional: an absent api falls back to the relay default
+ * (anthropic-messages). Derived from the model seat + the image family so the
+ * two controls can never drift apart — the exact union the server admits.
+ */
+export const providerApiFamilySchema = z.enum([...modelApiFamilySchema.options, "openai-images"]);
+export type ProviderApiFamily = z.infer<typeof providerApiFamilySchema>;
 
 export const REASONING_LEVEL_OPTIONS = [
   "none",
