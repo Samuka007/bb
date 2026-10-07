@@ -1,29 +1,32 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { z } from "zod";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 import { loadPluginApp, renderSlot } from "@get-bb/plugin-sdk/testing/app";
 import { providerProjectionsResponseSchema } from "./src/queries/provider-projection-queries";
 import { ServerProviderSettingsSection } from "./src/ServerProviderSettingsSection";
 import { resetPluginQueryClientForTest } from "./src/plugin-query-client";
 
 /**
- * #266 the read-only Server projection, migrated into the plugin (#382):
- * renders the deployment-env projection facts (relay harness + web_search
- * chain) with credential-gate badges — presence only, never values — and no
- * write controls anywhere on the face. The plugin bundles its own
- * react-query copy (the SDK runtime-shims react but not react-query); the
- * slot-facing section supplies its own QueryClientProvider (#387), so the
- * tests mount the REGISTERED slot — the exact shape production mounts — with
- * no test-side wrapper that could mask a missing provider again.
+ * #266 the Server projection, migrated into the plugin (#382), upgraded by
+ * #449: the relay harness stays a read-only projection while the web_search
+ * engine chain is EDITABLE — the D1 `web_search` row behind GET/PUT
+ * /system/web-search is the sole 正本 (the AGENT_DO_WEB_SEARCH env path is
+ * deleted). The tests mount the REGISTERED slot — the exact shape production
+ * mounts (#387 precedent) — with a route table covering BOTH faces, and
+ * exercise the write paths: reorder, toggle, write-only credentials, and
+ * the failed-write verdict.
  */
+
+const app = await loadPluginApp(() => import("./app"));
 
 const mocks = vi.hoisted(() => ({
   fetch: vi.fn(),
 }));
 
-const app = await loadPluginApp(() => import("./app"));
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 afterEach(() => {
   cleanup();
@@ -33,6 +36,35 @@ afterEach(() => {
   // stale fixture from a previous case would mask the next case's mock.
   resetPluginQueryClientForTest();
 });
+
+interface Call {
+  path: string;
+  init?: RequestInit;
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    json: () => Promise.resolve(body),
+  };
+}
+
+function routeMock(routes: (call: Call) => { status: number; body: unknown } | undefined): Call[] {
+  const calls: Call[] = [];
+  mocks.fetch.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    const path = String(input);
+    const call = { path, init };
+    calls.push(call);
+    const route = routes(call);
+    if (route === undefined) {
+      throw new Error(`unexpected fetch: ${String(init?.method ?? "GET")} ${path}`);
+    }
+    return Promise.resolve(jsonResponse(route.body, route.status));
+  });
+  vi.stubGlobal("fetch", mocks.fetch);
+  return calls;
+}
 
 function renderSection(): void {
   const server = app.settingsSections.find(
@@ -63,7 +95,7 @@ function projectionResponse(): ProjectionFixture {
       permissionMode: "full",
     },
     webSearch: {
-      configured: false,
+      configured: true,
       decodeError: false,
       chain: [
         { engine: "brave", credentialsRequired: true, credentialsPresent: false },
@@ -75,17 +107,70 @@ function projectionResponse(): ProjectionFixture {
   };
 }
 
-function jsonResponse(body: unknown, status = 200) {
+/** The editable face fixture (#449 GET /system/web-search). */
+function webSearchFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: () => Promise.resolve(body),
+    configured: true,
+    decodeError: false,
+    chain: [
+      { engine: "brave", credentialsRequired: true, credentialsPresent: false },
+      { engine: "public", credentialsRequired: false, credentialsPresent: true },
+    ],
+    timeoutSeconds: 60,
+    browserBackedEngines: ["google", "ecosia", "mojeek"],
+    availableEngines: ["brave", "duckduckgo", "searxng", "startpage", "public"],
+    engines: {
+      brave: { hasApiKey: false },
+      searxng: {
+        endpoint: null,
+        categories: null,
+        language: null,
+        safesearch: null,
+        hasToken: false,
+        hasBasicAuth: false,
+      },
+    },
+    ...overrides,
   };
 }
 
-function mockOnce(body: ProjectionFixture): void {
-  mocks.fetch.mockResolvedValue(jsonResponse(body));
-  vi.stubGlobal("fetch", mocks.fetch);
+/** Both GET faces answer; PUTs mutate the in-memory seat like the server. */
+function dualFaceMock(seat: Record<string, unknown>): { calls: Call[]; seat: Record<string, unknown> } {
+  const state = { seat };
+  const calls = routeMock((call) => {
+    if (call.path.endsWith("/system/web-search") && call.init?.method === "PUT") {
+      const body = JSON.parse(String(call.init.body ?? "{}")) as {
+        chain?: string[];
+      };
+      state.seat = {
+        ...state.seat,
+        // A chain write replaces the order; the response still carries the
+        // gate-projection row shape (the server re-reads the stored truth).
+        ...(body.chain !== undefined
+          ? {
+              chain: body.chain.map((engine) => ({
+                engine,
+                credentialsRequired: false,
+                credentialsPresent: true,
+              })),
+            }
+          : body),
+      };
+      return { status: 200, body: state.seat };
+    }
+    if (call.path.endsWith("/system/web-search")) {
+      return { status: 200, body: state.seat };
+    }
+    if (call.path.endsWith("/system/provider-projections")) {
+      return { status: 200, body: projectionResponse() };
+    }
+    return undefined;
+  });
+  return { calls, seat: state.seat };
+}
+
+function bodyOf(call: Call | undefined): Record<string, unknown> {
+  return JSON.parse(String(call?.init?.body ?? "{}")) as Record<string, unknown>;
 }
 
 describe("ServerProviderSettingsSection", () => {
@@ -101,7 +186,7 @@ describe("ServerProviderSettingsSection", () => {
   // boundary disabled the section for the session. The slot-facing export
   // must therefore mount bare — no test-side wrapper — and still render.
   it("mounts bare with no test-side QueryClientProvider (#387)", async () => {
-    mockOnce(projectionResponse());
+    dualFaceMock(webSearchFixture());
     render(<ServerProviderSettingsSection />);
 
     await waitFor(() => {
@@ -109,57 +194,175 @@ describe("ServerProviderSettingsSection", () => {
     });
   });
 
-  it("renders the read-only projection with credential gates", async () => {
-    mockOnce(projectionResponse());
+  it("renders the harness projection and the editable chain editor", async () => {
+    dualFaceMock(webSearchFixture());
     renderSection();
 
-    // Relay facts.
-    await waitFor(() => {
-      expect(screen.getByText("anthropic")).toBeTruthy();
-    });
+    // Relay facts (read-only projection).
+    await screen.findByText("anthropic", {}, { timeout: 3_000 });
+    // The editable chain renders once BOTH faces resolve (the editor's own
+    // query fires after the projections mount).
+    await screen.findByLabelText("Include brave in the chain", {}, { timeout: 3_000 });
     expect(screen.getByText("newapi.example.com")).toBeTruthy();
     expect(screen.getByText("glm-5.3-anth")).toBeTruthy();
-    // Credential gates: presence badges, never values.
-    const badges = screen.getAllByText("Not configured");
-    expect(badges.length).toBeGreaterThanOrEqual(1);
+    // The editable chain: every available engine has a toggle; in-chain
+    // engines show their position and reorder controls.
+    expect(screen.getByLabelText("Include brave in the chain")).toBeTruthy();
+    expect(screen.getByLabelText("Include Public Web in the chain")).toBeTruthy();
+    expect(screen.getByLabelText("Include duckduckgo in the chain")).toBeTruthy();
+    expect(screen.getByLabelText("Move brave up")).toBeTruthy();
+    expect(screen.getByLabelText("Move brave down")).toBeTruthy();
+    // Credential gates render as badges — presence, never values.
+    expect(screen.getAllByText("Not configured").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Configured").length).toBeGreaterThanOrEqual(1);
-    // Chain order and the browser-backed exclusion note.
-    expect(screen.getByText("Public Web")).toBeTruthy();
+    // The browser-backed exclusion note and the write-only key row.
     expect(
       screen.getByText(
         "google, ecosia, mojeek — browser-backed, excluded from the server-side provider set",
       ),
     ).toBeTruthy();
-    // The "edit goes through deployment env" pointer.
-    expect(screen.getByText(/deployment env/)).toBeTruthy();
-    // Read-only face: no switch/combobox/textbox anywhere.
-    expect(document.querySelector("[role='switch']")).toBeNull();
+    expect(screen.getByPlaceholderText("Type a key")).toBeTruthy();
   });
 
-  it("reports a decode-broken env without a chain", async () => {
-    const response = projectionResponse();
-    response.webSearch.decodeError = true;
-    response.webSearch.chain = [];
-    response.webSearch.timeoutSeconds = null;
-    mockOnce(response);
+  it("reorders the chain with a full ordered-chain PUT", async () => {
+    const { calls } = dualFaceMock(webSearchFixture());
+    renderSection();
+    await screen.findByLabelText("Move brave down", {}, { timeout: 3_000 });
+
+    fireEvent.click(screen.getByLabelText("Move brave down"));
+    // The PUT fires synchronously with the FULL ordered chain (order IS the
+    // payload); the success toast rides the same write() as every other
+    // control (asserted on the image-source section's write path).
+    let put: Call | undefined;
+    await waitFor(() => {
+      put = calls.find(
+        (call) => call.path.endsWith("/system/web-search") && call.init?.method === "PUT",
+      );
+      expect(put).toBeDefined();
+    });
+    expect(bodyOf(put)).toEqual({ chain: ["public", "brave"] });
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith(
+        expect.stringContaining("moved"),
+        expect.objectContaining({ description: expect.stringContaining("Hot-applied") }),
+      );
+    });
+  });
+
+  it("appends an engine to the chain when toggled on", async () => {
+    const { calls } = dualFaceMock(webSearchFixture());
+    renderSection();
+    await screen.findByLabelText("Include duckduckgo in the chain", {}, { timeout: 3_000 });
+
+    fireEvent.click(screen.getByLabelText("Include duckduckgo in the chain"));
+    await waitFor(() => {
+      const put = calls.find(
+        (call) => call.path.endsWith("/system/web-search") && call.init?.method === "PUT",
+      );
+      expect(bodyOf(put)).toEqual({ chain: ["brave", "public", "duckduckgo"] });
+    });
+  });
+
+  it("writes the brave key write-only and clears it with ✕", async () => {
+    const { calls } = dualFaceMock(webSearchFixture());
+    renderSection();
+    await screen.findByPlaceholderText("Type a key", {}, { timeout: 3_000 });
+
+    const input = screen.getByPlaceholderText("Type a key") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "brv-secret-449" } });
+    // The face has several Save buttons (brave key, SearXNG endpoint, auth);
+    // the brave row's is the first.
+    fireEvent.click(screen.getAllByText("Save")[0]!);
+    await waitFor(() => {
+      const put = calls.find(
+        (call) => call.path.endsWith("/system/web-search") && call.init?.method === "PUT",
+      );
+      expect(bodyOf(put)).toEqual({ engines: { brave: { apiKey: "brv-secret-449" } } });
+    });
+    // The typed value never renders back (write-only discipline).
+    expect(document.body.textContent).not.toContain("brv-secret-449");
+  });
+
+  it("surfaces the server's refusal instead of moving local state", async () => {
+    const calls = routeMock((call) => {
+      if (call.path.endsWith("/system/web-search") && call.init?.method === "PUT") {
+        return {
+          status: 422,
+          body: {
+            code: "validation_failed",
+            message:
+              'web_search edge policy: engine "google" is browser-backed and is excluded from the DO-local provider set.',
+          },
+        };
+      }
+      if (call.path.endsWith("/system/web-search")) {
+        return { status: 200, body: webSearchFixture() };
+      }
+      if (call.path.endsWith("/system/provider-projections")) {
+        return { status: 200, body: projectionResponse() };
+      }
+      return undefined;
+    });
+    renderSection();
+    await screen.findByLabelText("Move brave down", {}, { timeout: 3_000 });
+
+    fireEvent.click(screen.getByLabelText("Move brave down"));
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith(
+        "Saving the web search configuration failed",
+        expect.objectContaining({
+          description: expect.stringContaining("browser-backed"),
+        }),
+      );
+    });
+    expect(calls.filter((call) => call.init?.method === "PUT")).toHaveLength(1);
+  });
+
+  it("reports a decode-broken seat without editors", async () => {
+    // The wire face NEVER carries engines:null — a broken row still serves
+    // the zero-detail object (the loud decodeError banner rides beside it).
+    dualFaceMock(
+      webSearchFixture({
+        decodeError: true,
+        chain: [],
+        timeoutSeconds: null,
+        engines: {
+          brave: { hasApiKey: false },
+          searxng: {
+            endpoint: null,
+            categories: null,
+            language: null,
+            safesearch: null,
+            hasToken: false,
+            hasBasicAuth: false,
+          },
+        },
+      }),
+    );
     renderSection();
 
-    await waitFor(() => {
-      expect(screen.getByText(/failed to decode/)).toBeTruthy();
-    });
+    await screen.findByText(/failed to decode/, {}, { timeout: 3_000 });
+    // No chain, no editors.
     expect(screen.queryByText("Public Web")).toBeNull();
+    expect(screen.queryByLabelText("Include brave in the chain")).toBeNull();
   });
 
   it("shows the mock-mode hint when the relay key is absent", async () => {
     const response = projectionResponse();
     response.harness.relayMode = "mock";
     response.harness.relayKeyPresent = false;
-    mockOnce(response);
+    routeMock((call) => {
+      if (call.path.endsWith("/system/web-search")) {
+        return { status: 200, body: webSearchFixture() };
+      }
+      if (call.path.endsWith("/system/provider-projections")) {
+        return { status: 200, body: response };
+      }
+      return undefined;
+    });
     renderSection();
 
-    await waitFor(() => {
-      expect(screen.getByText("mock")).toBeTruthy();
-    });
+    await screen.findByText("mock", {}, { timeout: 3_000 });
     expect(screen.getByText(/mock mode/)).toBeTruthy();
   });
 });
