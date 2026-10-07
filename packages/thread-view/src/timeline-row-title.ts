@@ -1431,17 +1431,30 @@ function mapSystemTitle(row: TimelineSystemViewRow): TimelineTitle {
   if (row.systemKind === "operation" && row.operationKind === "parent-change") {
     return mapParentChangeSystemTitle(row);
   }
+  // #3250: reasoning rows own their label — the live row reads "Thinking…"
+  // and the completed row collapses to "Thought" with the duration
+  // decoration carrying the elapsed time (hidden at one second or less).
+  const isReasoning =
+    row.systemKind === "operation" && row.operationKind === "reasoning";
   const isCompaction =
     row.systemKind === "operation" && row.operationKind === "compaction";
   const titleText =
-    isCompaction && row.status === "pending" ? `${row.title}…` : row.title;
+    isReasoning
+      ? row.status === "pending"
+        ? "Thinking…"
+        : "Thought"
+      : isCompaction && row.status === "pending"
+        ? `${row.title}…`
+        : row.title;
   // Error system rows read like every other terminal row: a neutral title plus
   // a status decoration that carries the error color (see TimelineTitleView).
   // They no longer recolor the whole title — full-destructive tone was unique
   // among timeline rows and made error rows shout relative to their peers.
   const decorations: TimelineTitleDecoration[] = hasError
     ? [statusDecoration("error", null, { emphasis: true })]
-    : isCompaction && (row.status === "pending" || row.status === "completed")
+    : isReasoning ||
+        (isCompaction &&
+          (row.status === "pending" || row.status === "completed"))
       ? filterNull([durationDecoration(row.startedAt, row.completedAt)])
       : [];
   // Shimmer means "in progress right now" — true only for pending rows. Only

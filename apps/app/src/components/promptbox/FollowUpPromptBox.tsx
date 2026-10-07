@@ -208,6 +208,14 @@ export interface FollowUpPromptBoxProps {
    */
   contextWindowUsage: ContextWindowUsage | null;
   /**
+   * Optional Compact action embedded in the context-window indicator popover
+   * (hermes-style single control). Omit for secondary composers, which
+   * render no indicator.
+   */
+  compactAction?: ComponentProps<
+    typeof ThreadContextWindowIndicator
+  >["compactAction"];
+  /**
    * Execution controls (provider + model + service tier + reasoning) rendered
    * in PromptBox's footer slot. Callers omit provider.onChange so the picker
    * renders the provider as locked — follow-ups can't change provider, the
@@ -304,6 +312,7 @@ function FollowUpPromptBoxWithComposer({
   composer,
   environmentSummary,
   contextWindowUsage,
+  compactAction,
   execution,
   permission,
   readOnly,
@@ -771,7 +780,10 @@ function FollowUpPromptBoxWithComposer({
           <div className="flex shrink-0 items-center gap-2">
             {permissionControl}
             {contextWindowUsage ? (
-              <ThreadContextWindowIndicator usage={contextWindowUsage} />
+              <ThreadContextWindowIndicator
+                usage={contextWindowUsage}
+                {...(compactAction ? { compactAction } : {})}
+              />
             ) : null}
           </div>
         </div>

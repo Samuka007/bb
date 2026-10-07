@@ -4,6 +4,7 @@ import {
   hasTimelineExplorationIntent,
   type ThreadTimelineViewRow,
   type TimelineViewWorkRow,
+  type TimelineWorkSummaryChild,
 } from "@bb/thread-view";
 
 interface CollectTimelineAutoExpansionRowIdsArgs {
@@ -71,15 +72,14 @@ export function isRowExpandable(row: ThreadTimelineViewRow): boolean {
  * base max-height cap with overflow fades. Summaries that contain any
  * expandable child do not — capping then would put the child's own scroll
  * body inside a scrolling parent, which is poor UX. The expandability test
- * reuses `isWorkRowExpandable` so the cap rule and the per-row expand
- * affordance can never disagree.
+ * reuses `isRowExpandable` so the cap rule and the per-row expand affordance
+ * can never disagree (#3250: children widen to include reasoning rows).
  */
 export function isNonExpandableSummary(
-  children: readonly TimelineViewWorkRow[],
+  children: readonly TimelineWorkSummaryChild[],
 ): boolean {
   return (
-    children.length > 0 &&
-    children.every((child) => !isWorkRowExpandable(child))
+    children.length > 0 && children.every((child) => !isRowExpandable(child))
   );
 }
 

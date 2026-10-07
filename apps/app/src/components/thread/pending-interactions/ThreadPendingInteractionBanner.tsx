@@ -25,6 +25,7 @@ import { UserQuestionAnswerForm } from "@/components/thread/user-questions/UserQ
 import { useResolveThreadPendingInteraction } from "@/hooks/mutations/thread-interaction-mutations";
 import { getMutationErrorMessage } from "@/lib/mutation-errors";
 import { cn } from "@bb/shared-ui/lib/utils";
+import { StopRunButton } from "./StopRunButton.js";
 
 interface ThreadPendingInteractionSourceThread {
   href: string;
@@ -33,6 +34,17 @@ interface ThreadPendingInteractionSourceThread {
 
 interface ThreadPendingInteractionBannerProps {
   interaction: PendingInteraction;
+  /**
+   * Stop (cancel) the active turn that is blocked on this interaction. The
+   * card replaces the composer while pending, so the composer's stop button
+   * is not reachable — surfaces with a live runtime pass their stop handler
+   * here to keep a visible cancel affordance on the card.
+   */
+  onStop?: () => void;
+  /** A stop request is in flight: the entry disables and shows progress. */
+  isStopRequested?: boolean;
+  /** Extra disable for the stop entry (e.g. a resolution is in flight). */
+  isStopDisabled?: boolean;
   sourceThread?: ThreadPendingInteractionSourceThread;
   threadId: string;
 }
@@ -40,6 +52,9 @@ interface ThreadPendingInteractionBannerProps {
 interface ApprovalPendingInteractionBannerProps {
   interaction: PendingInteraction;
   payload: ApprovalPendingInteractionPayload;
+  onStop?: () => void;
+  isStopRequested?: boolean;
+  isStopDisabled?: boolean;
   sourceThread?: ThreadPendingInteractionSourceThread;
   threadId: string;
 }
@@ -47,6 +62,8 @@ interface ApprovalPendingInteractionBannerProps {
 interface UserQuestionPendingInteractionBannerProps {
   interaction: PendingInteraction;
   payload: UserQuestionPendingInteractionPayload;
+  onStop?: () => void;
+  isStopRequested?: boolean;
   sourceThread?: ThreadPendingInteractionSourceThread;
   threadId: string;
 }
@@ -57,6 +74,9 @@ interface BannerShellProps {
   errorMessage?: string | null;
   footer?: ReactNode;
   children?: ReactNode;
+  onStop?: () => void;
+  isStopRequested?: boolean;
+  isStopDisabled?: boolean;
   sourceThread?: ThreadPendingInteractionSourceThread;
 }
 
@@ -72,6 +92,9 @@ interface BuildApprovalSubjectInput {
 
 export function ThreadPendingInteractionBanner({
   interaction,
+  onStop,
+  isStopRequested,
+  isStopDisabled,
   sourceThread,
   threadId,
 }: ThreadPendingInteractionBannerProps) {
@@ -83,6 +106,8 @@ export function ThreadPendingInteractionBanner({
       <ThreadUserQuestionPendingInteractionBanner
         interaction={interaction}
         payload={interaction.payload}
+        onStop={onStop}
+        isStopRequested={isStopRequested}
         sourceThread={sourceThread}
         threadId={threadId}
       />
@@ -97,6 +122,9 @@ export function ThreadPendingInteractionBanner({
     <ApprovalPendingInteractionBanner
       interaction={interaction}
       payload={interaction.payload}
+      onStop={onStop}
+      isStopRequested={isStopRequested}
+      isStopDisabled={isStopDisabled}
       sourceThread={sourceThread}
       threadId={threadId}
     />
@@ -108,6 +136,9 @@ function BannerShell({
   errorMessage,
   footer,
   children,
+  onStop,
+  isStopRequested,
+  isStopDisabled,
   sourceThread,
 }: BannerShellProps) {
   return (
@@ -130,8 +161,16 @@ function BannerShell({
       {children ? (
         <div className={title ? "mt-3" : undefined}>{children}</div>
       ) : null}
-      {footer ? (
+      {footer || onStop ? (
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+          {onStop ? (
+            <StopRunButton
+              className="mr-auto"
+              disabled={isStopDisabled}
+              stopping={isStopRequested}
+              onClick={onStop}
+            />
+          ) : null}
           {footer}
         </div>
       ) : null}
@@ -147,6 +186,9 @@ function BannerShell({
 function ApprovalPendingInteractionBanner({
   interaction,
   payload,
+  onStop,
+  isStopRequested,
+  isStopDisabled,
   sourceThread,
   threadId,
 }: ApprovalPendingInteractionBannerProps) {
@@ -186,6 +228,9 @@ function ApprovalPendingInteractionBanner({
     <BannerShell
       title={subject.title}
       errorMessage={mutationErrorMessage}
+      onStop={onStop}
+      isStopRequested={isStopRequested}
+      isStopDisabled={isStopDisabled}
       sourceThread={sourceThread}
       footer={payload.availableDecisions.map((decision) => (
         <ApprovalDecisionButton
@@ -206,6 +251,8 @@ function ApprovalPendingInteractionBanner({
 function ThreadUserQuestionPendingInteractionBanner({
   interaction,
   payload,
+  onStop,
+  isStopRequested,
   sourceThread,
   threadId,
 }: UserQuestionPendingInteractionBannerProps) {
@@ -213,12 +260,19 @@ function ThreadUserQuestionPendingInteractionBanner({
 
   // No shell title: the form supplies its own heading (the current question
   // prompt) plus the question tab strip.
+  // Stop ownership: the form's action row IS the cancel entry (one per card),
+  // so the shell's stop slot stays free; `stopRequested` mirrors an in-flight
+  // stop request into that row the same way the shell entry would.
   return (
-    <BannerShell sourceThread={sourceThread}>
+    <BannerShell
+      isStopRequested={isStopRequested}
+      sourceThread={sourceThread}
+    >
       <UserQuestionAnswerForm
         interactionId={interaction.id}
         isResolving={isResolving}
         questions={payload.questions}
+        stopRequested={isStopRequested}
         threadId={threadId}
       />
     </BannerShell>

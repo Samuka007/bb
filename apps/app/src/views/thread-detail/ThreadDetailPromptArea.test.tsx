@@ -39,6 +39,7 @@ import {
 const mocks = vi.hoisted(() => ({
   cancelThreadPlanMutate: vi.fn(),
   clearThreadGoalMutate: vi.fn(),
+  compactThreadMutateAsync: vi.fn(),
   createQueuedMessageMutateAsync: vi.fn(),
   defaultExecutionOptions: null as ResolvedThreadExecutionOptions | null,
   deleteQueuedMessageMutateAsync: vi.fn(),
@@ -366,8 +367,17 @@ vi.mock("@/components/promptbox/banner/ThreadWorkflowCard", () => ({
 vi.mock(
   "@/components/thread/pending-interactions/ThreadPendingInteractionBanner",
   () => ({
-    ThreadPendingInteractionBanner: () => (
-      <div data-testid="composer-stack-item">Pending interaction</div>
+    ThreadPendingInteractionBanner: ({
+      onStop,
+    }: {
+      onStop?: () => void;
+    }) => (
+      <div data-testid="composer-stack-item">
+        Pending interaction
+        {onStop ? (
+          <button type="button" aria-label="Stop run" onClick={onStop} />
+        ) : null}
+      </div>
     ),
   }),
 );
@@ -459,6 +469,10 @@ vi.mock("@/hooks/mutations/thread-runtime-mutations", () => ({
   useClearThreadGoal: () => ({
     isPending: false,
     mutate: mocks.clearThreadGoalMutate,
+  }),
+  useCompactThread: () => ({
+    isPending: false,
+    mutateAsync: mocks.compactThreadMutateAsync,
   }),
   useCreateThreadQueuedMessage: () => ({
     isPending: false,
@@ -1494,6 +1508,17 @@ describe("ThreadDetailPromptArea", () => {
         .getAllByTestId("composer-stack-item")
         .map((item) => item.textContent),
     ).toEqual(["Goal banner", "Pending interaction"]);
+  });
+
+  it("wires the pending interaction's stop entry to the current thread", () => {
+    renderPromptArea({
+      pendingInteractions: [makePendingInteraction()],
+      thread: makeThread({ id: "thr_ask" }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop run" }));
+
+    expect(mocks.stopThreadMutate).toHaveBeenCalledWith("thr_ask");
   });
 
   it("keeps plugin banners mounted while pending interaction suspends editor regions", () => {
