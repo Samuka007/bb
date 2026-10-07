@@ -75,6 +75,13 @@ export interface CanSubmitFollowUpShortcutArgs {
 export interface BuildFollowUpSubmitModeArgs {
   hasPendingInteraction: boolean;
   isDefaultExecutionOptionsLoading: boolean;
+  /**
+   * #499: the effective model cannot be dispatched as-is (it left the
+   * directory, or the zeroth cell has no selection). Blocks submit before the
+   * queue branch so no dispatch rides a selection the server would 422; the
+   * caller keeps this false while the selection is merely still loading.
+   */
+  isModelUnavailable: boolean;
   isPendingInteractionsInitialLoading: boolean;
   isStopRequested: boolean;
   onStop: () => void;
@@ -84,6 +91,7 @@ export interface BuildFollowUpSubmitModeArgs {
 export interface BuildSideChatSubmitModeArgs {
   childThreadId: string | null;
   isDefaultExecutionOptionsLoading: boolean;
+  isModelUnavailable?: boolean;
   isStopRequested: boolean;
   onStop: () => void;
   runtimeDisplayStatus: ThreadRuntimeDisplayStatus;
@@ -123,6 +131,7 @@ export function shouldQueueFollowUpMessage(
 export function buildFollowUpSubmitMode({
   hasPendingInteraction,
   isDefaultExecutionOptionsLoading,
+  isModelUnavailable,
   isPendingInteractionsInitialLoading,
   isStopRequested,
   onStop,
@@ -137,6 +146,13 @@ export function buildFollowUpSubmitMode({
   if (hasPendingInteraction) {
     return { kind: "blocked", reason: "pending-interaction" };
   }
+  if (isModelUnavailable) {
+    // A live run keeps its stop affordance; the send itself stays blocked
+    // until the selection is explicit again.
+    return shouldQueueFollowUpMessage(runtimeDisplayStatus)
+      ? { kind: "blocked", reason: "model-unavailable", onStop }
+      : { kind: "blocked", reason: "model-unavailable" };
+  }
   if (shouldQueueFollowUpMessage(runtimeDisplayStatus)) {
     return { kind: "queue", onStop };
   }
@@ -149,6 +165,7 @@ export function buildFollowUpSubmitMode({
 export function buildSideChatSubmitMode({
   childThreadId,
   isDefaultExecutionOptionsLoading,
+  isModelUnavailable = false,
   isStopRequested,
   onStop,
   runtimeDisplayStatus,
@@ -161,6 +178,7 @@ export function buildSideChatSubmitMode({
   return buildFollowUpSubmitMode({
     hasPendingInteraction: false,
     isDefaultExecutionOptionsLoading,
+    isModelUnavailable,
     isPendingInteractionsInitialLoading: false,
     isStopRequested,
     onStop,

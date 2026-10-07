@@ -849,6 +849,9 @@ export function ModelReasoningPicker({
             "min-w-0 truncate",
             modelIsLoading && "animate-shine whitespace-nowrap",
             triggerModelValueIsDestructive && "text-destructive-text",
+            // #499: a selection the directory no longer serves reads as
+            // inactive (gray) beside its honest "Model unavailable" marker.
+            selectedModelIsUnavailable && "text-muted-foreground",
           )}
         >
           {triggerModelBase}
@@ -1041,6 +1044,7 @@ export function ModelReasoningPicker({
                               .join(" · ")
                           : option.routeProviderId
                       }
+                      unavailable={option.unavailable === true}
                       selected={!isPreviewing && option.value === modelValue}
                       onClick={() => handleModelSelect(option.value)}
                     />
@@ -1334,6 +1338,7 @@ function MoreModelsSubmenu({
                       .join(" · ")
                   : option.routeProviderId
               }
+              unavailable={option.unavailable === true}
               selected={!isPreviewing && option.value === modelValue}
               onClick={() => onSelect(option.value)}
             />
@@ -1361,6 +1366,7 @@ function ResetBrowseStateOnContentUnmount({
 function MenuRowButton({
   label,
   qualifier,
+  unavailable,
   selected,
   onClick,
   isActive,
@@ -1371,6 +1377,8 @@ function MenuRowButton({
 }: {
   label: string;
   qualifier?: string;
+  /** #499: absent from the served directory — render inactive (gray). */
+  unavailable?: boolean;
   selected: boolean;
   onClick: () => void;
   isActive?: boolean;
@@ -1405,7 +1413,7 @@ function MenuRowButton({
       {...hoverProps}
     >
       <span
-        className="truncate"
+        className={cn("truncate", unavailable && "text-muted-foreground")}
         title={qualifier ? `${label} · ${qualifier}` : label}
       >
         {base}
