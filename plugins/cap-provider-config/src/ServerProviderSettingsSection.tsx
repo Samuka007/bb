@@ -11,10 +11,6 @@ import {
   SettingsWithControl,
 } from "./ui/settings-section";
 import {
-  useProviderProjections,
-  type ProviderProjectionsResponse,
-} from "./queries/provider-projection-queries";
-import {
   useSetWebSearch,
   useWebSearch,
   type WebSearchPutRequest,
@@ -27,12 +23,9 @@ import { PluginQueryProvider } from "./plugin-query-client";
  * EDITABLE (#449): chain order, per-transport timeout, and per-engine
  * credentials write to the D1 `web_search` row (GET/PUT /system/web-search)
  * and hot-apply on the next turn — the env path (AGENT_DO_WEB_SEARCH) is
- * deleted, the row is the sole 正本. The relay harness is the LEGACY
- * deployment channel (Worker env MODEL_RELAY_*): read-only, and rendered
- * only when the deployment actually sets channel env (`envConfigured`,
- * #484) — at zero env the rows are pure HARNESS_DEFAULTS synthesis and
- * rendering them read as "my LLM provider is mock" next to the live D1
- * Configured rows (#450: provider_configs is the sole provider 正本).
+ * deleted, the row is the sole 正本. #500: the legacy deployment-channel
+ * relay block is DELETED with its env scalars — the D1 provider_configs
+ * rows are the panel's sole provider 正本 (the Configured section above).
  *
  * Secret discipline: key/token values are WRITE-ONLY — the face shows
  * presence badges only, an input left empty keeps the stored secret, and an
@@ -65,36 +58,6 @@ function ProjectionRow({
 function PresenceBadge({ present }: { present: boolean }) {
   return (
     <SettingsBadge>{present ? "Configured" : "Not configured"}</SettingsBadge>
-  );
-}
-
-function HarnessRows({ harness }: { harness: ProviderProjectionsResponse["harness"] }) {
-  // #484: at zero channel env these rows are HARNESS_DEFAULTS synthesis
-  // with no deployment input — the block must not render (the "mock /
-  // open.bigmodel.cn / glm-5.3" defaults read as the user's provider). It
-  // exists only when the deployment still feeds the legacy channel.
-  if (!harness.envConfigured) return null;
-  return (
-    <SettingsRowList>
-      <ProjectionRow label="Relay mode" value={harness.relayMode} />
-      <ProjectionRow
-        label="Relay endpoint"
-        value={harness.relayBaseUrlHost ?? harness.relayBaseUrl}
-      />
-      <ProjectionRow label="Model" value={harness.relayModel} />
-      <SettingsWithControl
-        label="API key"
-        description={
-          harness.relayKeyPresent
-            ? undefined
-            : "MODEL_RELAY_API_KEY is unset — this legacy channel runs in mock mode (fixed replies) for turns without a selected provider."
-        }
-      >
-        <PresenceBadge present={harness.relayKeyPresent} />
-      </SettingsWithControl>
-      <ProjectionRow label="Permission mode" value={harness.permissionMode} />
-      <ProjectionRow label="Machine" value={harness.machineId} />
-    </SettingsRowList>
   );
 }
 
@@ -502,40 +465,12 @@ function SearxngCredentialRow({
 }
 
 function ServerProviderPanel() {
-  const projections = useProviderProjections();
-  if (projections.isPending || projections.data === undefined) {
-    return (
-      <SettingsSection
-        title="Server"
-        description="Server-side provider configuration: the editable web_search engine chain (D1) plus the legacy deployment relay channel when configured."
-      >
-        <p className="text-sm text-subtle-foreground">
-          {projections.error === null
-            ? "Loading provider projection…"
-            : "Could not load the provider projection."}
-        </p>
-      </SettingsSection>
-    );
-  }
   return (
     <SettingsSection
       title="Server"
-      description="Every block names its source of truth: provider configuration lives in the Configured rows (D1, hot-applied); the web search engine chain below writes to the D1 web_search row and hot-applies on the next turn; the deployment relay channel is legacy env machinery (read-only, redeploy to change) shown only when the deployment still sets MODEL_RELAY_*."
+      description="Every block names its source of truth: provider configuration lives in the Configured rows (D1, hot-applied); the web search engine chain below writes to the D1 web_search row and hot-applies on the next turn. The legacy deployment relay channel is deleted (#500) — the D1 rows are the sole provider 正本."
     >
       <div className="space-y-4">
-        {projections.data.harness.envConfigured ? (
-          <div>
-            <Label className="text-sm font-medium">Deployment relay channel</Label>
-            <p className="text-sm text-subtle-foreground">
-              Legacy deployment-env channel (Worker vars/secrets: MODEL_RELAY_*;
-              execution pins: DAEMON_MACHINE_ID, HARNESS_PERMISSION_MODE). The
-              Configured rows are the provider configuration source of truth;
-              this projection only matters for deployments that still set the
-              env.
-            </p>
-          </div>
-        ) : null}
-        <HarnessRows harness={projections.data.harness} />
         <div>
           <Label className="text-sm font-medium">Web search engine chain</Label>
           <p className="text-sm text-subtle-foreground">

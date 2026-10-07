@@ -34,28 +34,6 @@ const providerWebSearchEngineProjectionSchema = z.object({
 });
 
 export const providerProjectionsResponseSchema = z.object({
-  harness: z.object({
-    relayMode: z.string(),
-    relayBaseUrl: z.string(),
-    relayBaseUrlHost: z.string().nullable(),
-    relayKeyPresent: z.boolean(),
-    relayModel: z.string(),
-    relayMaxTokens: z.number(),
-    relayThinking: z.string(),
-    machineId: z.string(),
-    executionModel: z.string(),
-    executionServiceTier: z.string(),
-    executionReasoningLevel: z.string(),
-    permissionMode: z.string(),
-    /**
-     * #484: true iff the deployment set any legacy deployment-channel env
-     * (MODEL_RELAY_* family, DAEMON_MACHINE_ID, HARNESS_PERMISSION_MODE).
-     * false = the relay rows are pure HARNESS_DEFAULTS synthesis with zero
-     * deployment input — the block must NOT render (next to the live D1
-     * Configured rows it reads as "my LLM provider is mock").
-     */
-    envConfigured: z.boolean(),
-  }),
   webSearch: z.object({
     configured: z.boolean(),
     decodeError: z.boolean(),

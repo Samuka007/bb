@@ -19,8 +19,8 @@ import { ToolCapabilitiesSettingsSection } from "./src/ToolCapabilitiesSettingsS
  *   context_notes + new_context / checkpoint + rewind (GET/PUT
  *   /api/v1/system/tool-capabilities, D1 tool_capabilities).
  * - `server` — the #266 projection migrated here: the #449 editable
- *   web_search chain (D1 正本) plus the #484 legacy deployment relay
- *   channel, rendered only when the deployment sets its env.
+ *   web_search chain (D1 正本). #500: the legacy deployment relay channel
+ *   block is deleted with its env scalars — nothing to render for it.
  *
  * Both render on the plugin's canonical Settings page
  * (/settings/plugins/cap-provider-config), stacked in registration order
@@ -51,8 +51,7 @@ export default definePluginApp((app) => {
   app.slots.settingsSection({
     id: "server",
     title: "Server",
-    description:
-      "Web search engine chain (editable, D1) plus the legacy deployment relay channel — shown only when the deployment sets MODEL_RELAY_* env (#484).",
+    description: "Web search engine chain (editable, D1 正本, hot-applied).",
     component: ServerProviderSettingsSection,
   });
 });

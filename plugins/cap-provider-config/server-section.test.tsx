@@ -80,21 +80,6 @@ type ProjectionFixture = z.input<typeof providerProjectionsResponseSchema>;
 
 function projectionResponse(): ProjectionFixture {
   return {
-    harness: {
-      relayMode: "anthropic",
-      relayBaseUrl: "https://newapi.example.com",
-      relayBaseUrlHost: "newapi.example.com",
-      relayKeyPresent: true,
-      relayModel: "glm-5.3-anth",
-      relayMaxTokens: 8192,
-      relayThinking: "disabled",
-      machineId: "local",
-      executionModel: "glm-5.3-anth",
-      executionServiceTier: "default",
-      executionReasoningLevel: "none",
-      permissionMode: "full",
-      envConfigured: true,
-    },
     webSearch: {
       configured: true,
       decodeError: false,
@@ -191,23 +176,19 @@ describe("ServerProviderSettingsSection", () => {
     render(<ServerProviderSettingsSection />);
 
     await waitFor(() => {
-      expect(screen.getByText("anthropic")).toBeTruthy();
+      expect(screen.getByLabelText("Include brave in the chain")).toBeTruthy();
     });
   });
 
-  it("renders the harness projection and the editable chain editor", async () => {
+  it("renders the editable chain editor (#500: no legacy relay block)", async () => {
     dualFaceMock(webSearchFixture());
     renderSection();
 
-    // Relay facts (read-only projection).
-    await screen.findByText("anthropic", {}, { timeout: 3_000 });
-    // #484: the env-configured block renders under its legacy-channel label.
-    expect(screen.getByText("Deployment relay channel")).toBeTruthy();
-    // The editable chain renders once BOTH faces resolve (the editor's own
-    // query fires after the projections mount).
+    // #500: the legacy deployment-channel block is deleted — nothing relay
+    // renders; the editable chain is the whole section.
+    expect(screen.queryByText("Deployment relay channel")).toBeNull();
+    expect(screen.queryByText("Relay mode")).toBeNull();
     await screen.findByLabelText("Include brave in the chain", {}, { timeout: 3_000 });
-    expect(screen.getByText("newapi.example.com")).toBeTruthy();
-    expect(screen.getByText("glm-5.3-anth")).toBeTruthy();
     // The editable chain: every available engine has a toggle; in-chain
     // engines show their position and reorder controls.
     expect(screen.getByLabelText("Include brave in the chain")).toBeTruthy();
@@ -350,46 +331,7 @@ describe("ServerProviderSettingsSection", () => {
     expect(screen.queryByLabelText("Include brave in the chain")).toBeNull();
   });
 
-  it("shows the mock-mode hint when the relay key is absent", async () => {
-    const response = projectionResponse();
-    response.harness.relayMode = "mock";
-    response.harness.relayKeyPresent = false;
-    routeMock((call) => {
-      if (call.path.endsWith("/system/web-search")) {
-        return { status: 200, body: webSearchFixture() };
-      }
-      if (call.path.endsWith("/system/provider-projections")) {
-        return { status: 200, body: response };
-      }
-      return undefined;
-    });
-    renderSection();
-
-    await screen.findByText("mock", {}, { timeout: 3_000 });
-    expect(screen.getByText(/mock mode/)).toBeTruthy();
-  });
-
-  // #484: at zero deployment-channel env the harness rows are pure
-  // HARNESS_DEFAULTS synthesis — rendering them read as "my LLM provider is
-  // mock" next to the live D1 Configured rows. The block must vanish; the
-  // editable web_search face stays.
-  it("hides the legacy deployment channel at zero env (#484)", async () => {
-    const response = projectionResponse();
-    response.harness.envConfigured = false;
-    routeMock((call) => {
-      if (call.path.endsWith("/system/web-search")) {
-        return { status: 200, body: webSearchFixture() };
-      }
-      if (call.path.endsWith("/system/provider-projections")) {
-        return { status: 200, body: response };
-      }
-      return undefined;
-    });
-    renderSection();
-
-    await screen.findByLabelText("Include brave in the chain", {}, { timeout: 3_000 });
-    expect(screen.queryByText("Relay mode")).toBeNull();
-    expect(screen.queryByText("Deployment relay channel")).toBeNull();
-    expect(screen.queryByText(/mock mode/)).toBeNull();
-  });
+  // #500: the legacy deployment-channel block and its #484 env gate are
+  // deleted with the env scalars they projected — the "renders the editable
+  // chain editor" case above pins that no relay UI exists at all.
 });
