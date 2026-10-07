@@ -1,5 +1,6 @@
 import { definePluginApp } from "@get-bb/plugin-sdk/app";
 import { ConfiguredProviderSettingsSection } from "./src/ConfiguredProviderSettingsSection";
+import { ImageSourceSettingsSection } from "./src/ImageSourceSettingsSection";
 import { ServerProviderSettingsSection } from "./src/ServerProviderSettingsSection";
 
 /**
@@ -11,6 +12,8 @@ import { ServerProviderSettingsSection } from "./src/ServerProviderSettingsSecti
  *
  * - `configured` — the user-face write path: CRUD onto
  *   /api/v1/system/providers (D1 provider_configs 正本), discovery, probes.
+ * - `imageSource` — the #448 产图源 seat: which openai-images row supplies
+ *   generate_image (GET/PUT /api/v1/system/image-source, D1 image_source).
  * - `server` — the #266 read-only projection migrated here: deployment-env
  *   facts (relay harness + web_search chain), no controls.
  *
@@ -26,6 +29,12 @@ export default definePluginApp((app) => {
     description:
       "User-configurable providers — add, import models.yml, edit, probe, remove; hot-applied.",
     component: ConfiguredProviderSettingsSection,
+  });
+  app.slots.settingsSection({
+    id: "imageSource",
+    title: "Image Source",
+    description: "Which provider row generates images for the generate_image tool.",
+    component: ImageSourceSettingsSection,
   });
   app.slots.settingsSection({
     id: "server",
