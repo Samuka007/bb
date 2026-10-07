@@ -5,6 +5,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneContent } from "@/lib/split-layout";
+import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
 import SplitWorkspaceRoute from "./SplitWorkspaceRoute";
 
 const workspaceLifecycle = vi.hoisted(() => ({ mounts: 0, unmounts: 0 }));
@@ -45,13 +46,16 @@ describe("SplitWorkspaceRoute", () => {
   });
 
   it("preserves the workspace mount across focus-driven page URL changes", () => {
+    const { wrapper: Wrapper } = createQueryClientTestHarness();
     render(
-      <MemoryRouter initialEntries={["/"]}>
-        <NavigationControls />
-        <Routes>
-          <Route path="*" element={<SplitWorkspaceRoute />} />
-        </Routes>
-      </MemoryRouter>,
+      <Wrapper>
+        <MemoryRouter initialEntries={["/"]}>
+          <NavigationControls />
+          <Routes>
+            <Route path="*" element={<SplitWorkspaceRoute />} />
+          </Routes>
+        </MemoryRouter>
+      </Wrapper>,
     );
 
     expect(screen.getByTestId("route-content").textContent).toBe("new-thread");
