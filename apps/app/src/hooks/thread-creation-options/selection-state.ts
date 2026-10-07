@@ -54,6 +54,13 @@ export interface UseNewThreadCreationOptions extends UsePromptModelReasoningOpti
 
 export interface UseComponentLocalCreationOptions extends UsePromptModelReasoningOptions {
   scope: "component-local";
+  /**
+   * #499: when the face carries no model, keep the zeroth-cell empty selection
+   * instead of recovering onto the catalog default — the composer gates the
+   * send until the user picks explicitly (thread truth = stored selection,
+   * never a synthesized one). Create flows never set this.
+   */
+  preserveMissingModelSelection?: boolean;
 }
 
 export interface StoredCreateExecutionValues {

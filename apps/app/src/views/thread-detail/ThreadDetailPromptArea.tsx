@@ -79,7 +79,10 @@ import {
   useClearThreadGoal,
   useStopThread,
 } from "@/hooks/mutations/thread-runtime-mutations";
-import { useUnarchiveThread } from "@/hooks/mutations/thread-state-mutations";
+import {
+  useUnarchiveThread,
+  useUpdateThread,
+} from "@/hooks/mutations/thread-state-mutations";
 import {
   getLatestPendingInteraction,
   useThreadQueuedMessages,
@@ -410,6 +413,9 @@ export function ThreadDetailPromptArea({
   const clearThreadGoal = useClearThreadGoal();
   const compactThread = useCompactThread();
   const unarchiveThread = useUnarchiveThread();
+  const updateThread = useUpdateThread({
+    errorMessage: "Failed to switch the model.",
+  });
   // The personal project isn't a meaningful label in the footer, so skip it.
   const projectName = useProjectDisplayName(
     thread.projectId === PERSONAL_PROJECT_ID ? undefined : thread.projectId,
@@ -558,6 +564,7 @@ export function ThreadDetailPromptArea({
     selectedProviderDisplayName,
     selectedProviderComposerActions,
     selectedModel,
+    selectedModelUnavailable,
     setSelectedModel,
     serviceTier,
     setServiceTier,
@@ -589,6 +596,9 @@ export function ThreadDetailPromptArea({
     initialReasoningLevel: defaultExecutionOptions?.reasoningLevel,
     initialPermissionMode: defaultExecutionOptions?.permissionMode,
     initialEnvironmentSelectionValue: thread.environmentId ?? undefined,
+    // #499: no stored face → the zeroth cell stays empty; the composer gates
+    // the send until the user picks a model explicitly.
+    preserveMissingModelSelection: true,
   });
   const fallbackIdentity = modelFallback
     ? `${thread.id}:${modelFallback.sourceSeq}`
@@ -609,6 +619,60 @@ export function ThreadDetailPromptArea({
       setSelectedModel(model);
     },
     [fallbackIdentity, setSelectedModel],
+  );
+  // #499: the model-unavailable notice. `null` unavailableModel keeps the
+  // zeroth cell (no selection at all); the suggestion is the nearest
+  // available row (same provider's other models → catalog first row), and it
+  // is only ever applied by the user's click on the card.
+  const effectiveSelectedModelOption = useMemo(
+    () =>
+      modelOptions.find((option) => option.value === effectiveSelectedModel) ??
+      null,
+    [effectiveSelectedModel, modelOptions],
+  );
+  const modelUnavailableNotice = useMemo(() => {
+    const availabilityDead =
+      selectedModelUnavailable ||
+      (effectiveSelectedModel.length === 0 &&
+        selectedModel.length === 0 &&
+        defaultExecutionOptionsState === "unavailable" &&
+        !defaultExecutionOptionsQuery.isError);
+    if (!availabilityDead) return null;
+    return {
+      // Non-empty effective selection + a dead gate = the last-use model left
+      // the directory (the pool row normally carries the label); an empty
+      // effective selection is the zeroth cell.
+      unavailableModel:
+        effectiveSelectedModel.length === 0
+          ? null
+          : {
+              value: effectiveSelectedModel,
+              label:
+                effectiveSelectedModelOption?.label ?? effectiveSelectedModel,
+            },
+      suggestion:
+        modelOptions.find(
+          (option) => !option.unavailable && option.value !== effectiveSelectedModel,
+        ) ?? null,
+    };
+  }, [
+    defaultExecutionOptionsQuery.isError,
+    defaultExecutionOptionsState,
+    effectiveSelectedModel,
+    effectiveSelectedModelOption,
+    modelOptions,
+    selectedModel,
+    selectedModelUnavailable,
+  ]);
+  const handleUseSuggestedModel = useCallback(
+    (value: string) => {
+      // Explicit rewrite: the composer switches immediately and the thread's
+      // stored override follows (PATCH validates the pair fail-closed); the
+      // realtime face refresh then confirms the same value.
+      handleModelChange(value);
+      updateThread.mutate({ id: thread.id, model: value });
+    },
+    [handleModelChange, thread.id, updateThread],
   );
   const { typeaheadConfig, promptActions } = useComposerTypeahead({
     projectId: thread.projectId,
@@ -672,6 +736,8 @@ export function ThreadDetailPromptArea({
     return buildFollowUpSubmitMode({
       hasPendingInteraction,
       isDefaultExecutionOptionsLoading,
+      isModelUnavailable:
+        !isDefaultExecutionOptionsLoading && modelUnavailableNotice !== null,
       isPendingInteractionsInitialLoading: pendingInteractionsInitialLoading,
       isStopRequested,
       onStop: handleStopThread,
@@ -681,6 +747,7 @@ export function ThreadDetailPromptArea({
     handleStopThread,
     hasPendingInteraction,
     isDefaultExecutionOptionsLoading,
+    modelUnavailableNotice,
     pendingInteractionsInitialLoading,
     isStopRequested,
     runtimeDisplayStatus,
@@ -1506,6 +1573,16 @@ export function ThreadDetailPromptArea({
             threadId={thread.id}
           />
         ) : null}
+        {modelUnavailableNotice !== null ? (
+          <ThreadModelFallbackCard
+            key={`${thread.id}:model-unavailable:${effectiveSelectedModel}`}
+            threadId={thread.id}
+            unavailableModel={modelUnavailableNotice.unavailableModel}
+            suggestion={modelUnavailableNotice.suggestion}
+            onUseSuggestion={handleUseSuggestedModel}
+            isApplying={updateThread.isPending}
+          />
+        ) : null}
         {shouldHideComposer ? null : (
           <QueuedMessagesList
             queuedMessages={queuedMessages}
@@ -1557,7 +1634,10 @@ export function ThreadDetailPromptArea({
       toggleWorkflowExpanded,
       activeBackgroundCommands,
       isBackgroundCommandsExpanded,
+      effectiveSelectedModel,
+      handleUseSuggestedModel,
       modelFallback,
+      modelUnavailableNotice,
       parentThreadSection,
       childThreadsSection,
       pullRequestSection,
@@ -1570,6 +1650,7 @@ export function ThreadDetailPromptArea({
       submitMode.kind,
       thread.archivedAt,
       thread.id,
+      updateThread.isPending,
       workspaceChangedFilesSection,
       workspaceStatusPending,
     ],

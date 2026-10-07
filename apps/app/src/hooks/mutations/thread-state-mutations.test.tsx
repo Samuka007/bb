@@ -11,6 +11,7 @@ import { sdk } from "@/lib/sdk";
 import { createQueryClientTestHarness } from "@/test/queryClientTestHarness";
 import {
   sidebarNavigationQueryKey,
+  threadDefaultExecutionOptionsQueryKey,
   threadListQueryKey,
   threadQueryKey,
 } from "../queries/query-keys";
@@ -371,5 +372,33 @@ describe("thread state mutations", () => {
       pinnedAt: null,
       pinSortKey: null,
     });
+  });
+
+  it("refetches the stored-execution face when the update carries a model (#499)", async () => {
+    const { queryClient, wrapper } = createQueryClientTestHarness();
+    const threadId = "thread-1";
+    const faceKey = threadDefaultExecutionOptionsQueryKey(threadId);
+    queryClient.setQueryData(faceKey, {
+      model: "retired-model",
+      permissionMode: "full",
+      reasoningLevel: "none",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    });
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+    vi.mocked(sdk.threads.update).mockResolvedValue(
+      makeThreadResponse({ id: threadId }),
+    );
+
+    const { result } = renderHook(() => useUpdateThread(), { wrapper });
+
+    act(() => {
+      result.current.mutate({ id: threadId, model: "gpt-5" });
+    });
+
+    await waitFor(() => {
+      expect(result.current.isSuccess).toBe(true);
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: faceKey });
   });
 });

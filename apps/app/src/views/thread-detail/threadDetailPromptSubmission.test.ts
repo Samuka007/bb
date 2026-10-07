@@ -258,6 +258,7 @@ describe("threadDetailPromptSubmission", () => {
         buildFollowUpSubmitMode({
           hasPendingInteraction: false,
           isDefaultExecutionOptionsLoading: true,
+          isModelUnavailable: false,
           isPendingInteractionsInitialLoading: false,
           isStopRequested: false,
           onStop,
@@ -273,6 +274,7 @@ describe("threadDetailPromptSubmission", () => {
       buildFollowUpSubmitMode({
         hasPendingInteraction: false,
         isDefaultExecutionOptionsLoading: false,
+        isModelUnavailable: false,
         isPendingInteractionsInitialLoading: false,
         isStopRequested: true,
         onStop,
@@ -283,6 +285,7 @@ describe("threadDetailPromptSubmission", () => {
       buildFollowUpSubmitMode({
         hasPendingInteraction: true,
         isDefaultExecutionOptionsLoading: false,
+        isModelUnavailable: false,
         isPendingInteractionsInitialLoading: false,
         isStopRequested: false,
         onStop,
@@ -298,6 +301,7 @@ describe("threadDetailPromptSubmission", () => {
       buildFollowUpSubmitMode({
         hasPendingInteraction: false,
         isDefaultExecutionOptionsLoading: false,
+        isModelUnavailable: false,
         isPendingInteractionsInitialLoading: true,
         isStopRequested: false,
         onStop,
@@ -308,12 +312,54 @@ describe("threadDetailPromptSubmission", () => {
       buildFollowUpSubmitMode({
         hasPendingInteraction: false,
         isDefaultExecutionOptionsLoading: false,
+        isModelUnavailable: false,
         isPendingInteractionsInitialLoading: true,
         isStopRequested: false,
         onStop,
         runtimeDisplayStatus: "active",
       }),
     ).toEqual({ kind: "blocked", reason: "loading-pending-interactions" });
+  });
+
+  it("#499 blocks submit on a dead or missing selection before queue mode", () => {
+    const onStop = () => undefined;
+    // Idle: the gate blocks the send and offers no stop.
+    expect(
+      buildFollowUpSubmitMode({
+        hasPendingInteraction: false,
+        isDefaultExecutionOptionsLoading: false,
+        isModelUnavailable: true,
+        isPendingInteractionsInitialLoading: false,
+        isStopRequested: false,
+        onStop,
+        runtimeDisplayStatus: "idle",
+      }),
+    ).toEqual({ kind: "blocked", reason: "model-unavailable" });
+    // Active run: still blocked (no dispatch rides the dead selection) but the
+    // stop affordance stays attached.
+    expect(
+      buildFollowUpSubmitMode({
+        hasPendingInteraction: false,
+        isDefaultExecutionOptionsLoading: false,
+        isModelUnavailable: true,
+        isPendingInteractionsInitialLoading: false,
+        isStopRequested: false,
+        onStop,
+        runtimeDisplayStatus: "active",
+      }),
+    ).toEqual({ kind: "blocked", reason: "model-unavailable", onStop });
+    // Pending interactions outrank the model gate (priority order preserved).
+    expect(
+      buildFollowUpSubmitMode({
+        hasPendingInteraction: true,
+        isDefaultExecutionOptionsLoading: false,
+        isModelUnavailable: true,
+        isPendingInteractionsInitialLoading: false,
+        isStopRequested: false,
+        onStop,
+        runtimeDisplayStatus: "idle",
+      }),
+    ).toEqual({ kind: "blocked", reason: "pending-interaction" });
   });
 
   it("blocks a draft side chat until inherited execution options load", () => {

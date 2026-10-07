@@ -396,6 +396,7 @@ function EmbeddedThreadChatWithComposer({
     selectedProviderDisplayName,
     selectedProviderComposerActions,
     selectedModel,
+    selectedModelUnavailable,
     setSelectedModel,
     serviceTier,
     setServiceTier,
@@ -581,6 +582,7 @@ function EmbeddedThreadChatWithComposer({
       buildSideChatSubmitMode({
         childThreadId: threadId,
         isDefaultExecutionOptionsLoading,
+        isModelUnavailable: selectedModelUnavailable,
         isStopRequested,
         onStop: handleStopThread,
         runtimeDisplayStatus: displayStatus,
@@ -590,6 +592,7 @@ function EmbeddedThreadChatWithComposer({
       handleStopThread,
       isDefaultExecutionOptionsLoading,
       isStopRequested,
+      selectedModelUnavailable,
       threadId,
     ],
   );

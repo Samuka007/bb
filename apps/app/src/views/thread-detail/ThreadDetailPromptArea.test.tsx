@@ -64,7 +64,9 @@ const mocks = vi.hoisted(() => ({
   setQueuedMessageGroupBoundaryMutateAsync: vi.fn(),
   stopThreadMutate: vi.fn(),
   toastError: vi.fn(),
+  threadCreationOverrides: {} as Record<string, unknown>,
   unarchiveThreadMutate: vi.fn(),
+  updateThreadMutate: vi.fn(),
   uploadPromptAttachmentMutateAsync: vi.fn(),
   updateQueuedMessageMutateAsync: vi.fn(),
   useThreadDefaultExecutionOptions: vi.fn(),
@@ -439,6 +441,7 @@ vi.mock("@/hooks/useThreadCreationOptions", () => ({
       reasoningLevel: "medium",
       reasoningOptions: [],
       selectedModel: "gpt-5",
+      selectedModelUnavailable: false,
       selectedProviderComposerActions: [],
       selectedProviderDisplayName: "Codex",
       selectedProviderId: "codex",
@@ -450,6 +453,7 @@ vi.mock("@/hooks/useThreadCreationOptions", () => ({
       setServiceTier: vi.fn(),
       supportsPermissionModeSelection: true,
       supportsServiceTier: false,
+      ...mocks.threadCreationOverrides,
     };
   },
 }));
@@ -509,6 +513,11 @@ vi.mock("@/hooks/mutations/thread-state-mutations", () => ({
   useUnarchiveThread: () => ({
     isPending: false,
     mutate: mocks.unarchiveThreadMutate,
+    variables: null,
+  }),
+  useUpdateThread: () => ({
+    isPending: false,
+    mutate: mocks.updateThreadMutate,
     variables: null,
   }),
 }));
@@ -729,6 +738,7 @@ beforeEach(() => {
     text: mocks.promptDraft.text,
   }));
   mocks.queuedMessages = [];
+  mocks.threadCreationOverrides = {};
   mocks.updateQueuedMessageMutateAsync.mockResolvedValue(undefined);
   mocks.useThreadCreationOptions.mockClear();
   mocks.useThreadDefaultExecutionOptions.mockClear();
@@ -1645,6 +1655,64 @@ describe("ThreadDetailPromptArea", () => {
       "claude-opus-4-8",
     );
     expect(screen.getByText("Model fallback")).toBeTruthy();
+  });
+
+  it("#499 blocks the send and offers the one-click fallback when the model left the directory", () => {
+    mocks.defaultExecutionOptions = {
+      model: "retired-model",
+      permissionMode: "full",
+      reasoningLevel: "medium",
+      serviceTier: "default",
+      source: "client/turn/requested",
+    };
+    mocks.threadCreationOverrides = {
+      selectedModel: "retired-model",
+      selectedModelUnavailable: true,
+      modelOptions: [
+        { value: "retired-model", label: "Retired Model", unavailable: true },
+        { value: "gpt-5", label: "GPT-5" },
+      ],
+    };
+
+    renderPromptArea();
+
+    // Pre-send gate: the dead selection never reaches a send-time 422.
+    expect(screen.getByTestId("submit-mode").textContent).toBe(
+      "blocked:model-unavailable",
+    );
+    // The card keeps the last-use name verbatim and offers only the explicit
+    // click as the rewrite.
+    expect(screen.getByText("Model unavailable")).toBeTruthy();
+    expect(
+      screen.getByText("Retired Model is no longer available."),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Use GPT-5" }));
+    expect(mocks.updateThreadMutate).toHaveBeenCalledWith({
+      id: "thr_1",
+      model: "gpt-5",
+    });
+  });
+
+  it("#499 renders the zeroth-cell notice when the thread face has no selection", () => {
+    // defaultExecutionOptions stays null (beforeEach): the resolved face
+    // carries no model, and the preserved empty selection must not recover
+    // onto a catalog default.
+    mocks.threadCreationOverrides = {
+      selectedModel: "",
+      modelOptions: [{ value: "gpt-5", label: "GPT-5" }],
+    };
+
+    renderPromptArea();
+
+    expect(screen.getByTestId("submit-mode").textContent).toBe(
+      "blocked:model-unavailable",
+    );
+    expect(screen.getByText("No model selected")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Use GPT-5" }));
+    expect(mocks.updateThreadMutate).toHaveBeenCalledWith({
+      id: "thr_1",
+      model: "gpt-5",
+    });
   });
 
   it("opens root compose with a handoff seed for the current thread", () => {
