@@ -174,6 +174,7 @@ describe("ConfiguredProviderSettingsSection", () => {
     expect(app.settingsSections.map((section: { id: string }) => section.id)).toEqual([
       "configured",
       "imageSource",
+      "toolCapabilities",
       "server",
     ]);
   });

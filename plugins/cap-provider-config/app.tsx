@@ -2,6 +2,7 @@ import { definePluginApp } from "@get-bb/plugin-sdk/app";
 import { ConfiguredProviderSettingsSection } from "./src/ConfiguredProviderSettingsSection";
 import { ImageSourceSettingsSection } from "./src/ImageSourceSettingsSection";
 import { ServerProviderSettingsSection } from "./src/ServerProviderSettingsSection";
+import { ToolCapabilitiesSettingsSection } from "./src/ToolCapabilitiesSettingsSection";
 
 /**
  * cap-provider-config (cloudflare-agent-project #362/#382): the provider
@@ -14,6 +15,9 @@ import { ServerProviderSettingsSection } from "./src/ServerProviderSettingsSecti
  *   /api/v1/system/providers (D1 provider_configs 正本), discovery, probes.
  * - `imageSource` — the #448 产图源 seat: which openai-images row supplies
  *   generate_image (GET/PUT /api/v1/system/image-source, D1 image_source).
+ * - `toolCapabilities` — the #502 experimental tool gates: think /
+ *   context_notes + new_context / checkpoint + rewind (GET/PUT
+ *   /api/v1/system/tool-capabilities, D1 tool_capabilities).
  * - `server` — the #266 projection migrated here: the #449 editable
  *   web_search chain (D1 正本) plus the #484 legacy deployment relay
  *   channel, rendered only when the deployment sets its env.
@@ -36,6 +40,13 @@ export default definePluginApp((app) => {
     title: "Image Source",
     description: "Which provider row generates images for the generate_image tool.",
     component: ImageSourceSettingsSection,
+  });
+  app.slots.settingsSection({
+    id: "toolCapabilities",
+    title: "Tool Capabilities",
+    description:
+      "Experimental tool gates (think / context notes / checkpoints) — D1-backed, hot-applied on the next turn.",
+    component: ToolCapabilitiesSettingsSection,
   });
   app.slots.settingsSection({
     id: "server",
