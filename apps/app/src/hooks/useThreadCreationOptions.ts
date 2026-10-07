@@ -526,6 +526,23 @@ export function useThreadCreationOptions(
     !modelCatalogIsUnverified &&
     rawSelectedModel.length > 0 &&
     selectedModel !== rawSelectedModel;
+  // #486: rows served through the selected-only pool are absent from the
+  // active directory — this deployment fails such dispatches closed (422
+  // model_unknown), so the picker labels them honestly instead of rendering
+  // them as ordinary runnable choices.
+  const unavailableModelIds = useMemo(() => {
+    const active = new Set(
+      (executionOptionsQuery.data?.models ?? []).map((model) => model.model),
+    );
+    return new Set(
+      (executionOptionsQuery.data?.selectedOnlyModels ?? [])
+        .filter((model) => !active.has(model.model))
+        .map((model) => model.model),
+    );
+  }, [
+    executionOptionsQuery.data?.models,
+    executionOptionsQuery.data?.selectedOnlyModels,
+  ]);
 
   const modelOptions = useMemo(
     (): ModelPickerOption[] =>
@@ -535,8 +552,9 @@ export function useThreadCreationOptions(
         ...(model.routeProviderId
           ? { routeProviderId: model.routeProviderId }
           : {}),
+        ...(unavailableModelIds.has(model.model) ? { unavailable: true } : {}),
       })),
-    [availableModels],
+    [availableModels, unavailableModelIds],
   );
 
   // Models behind the picker's collapsed "More models" section. A promoted
@@ -555,6 +573,7 @@ export function useThreadCreationOptions(
           ...(model.routeProviderId
             ? { routeProviderId: model.routeProviderId }
             : {}),
+          unavailable: true,
         })),
     [executionOptionsQuery.data?.selectedOnlyModels, availableModels],
   );

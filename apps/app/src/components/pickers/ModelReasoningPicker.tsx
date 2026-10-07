@@ -80,6 +80,9 @@ interface ModelLabelParts {
 }
 
 const FAILED_TO_LOAD_MODELS_LABEL = "Failed to load models";
+/** #486: the selected-only pool's dispatch-dead marker (a deployment that
+ * fails such dispatches closed). Shown on the picker row and the trigger tag. */
+const UNAVAILABLE_MODEL_QUALIFIER = "Model unavailable";
 const MODEL_CYCLE_COMMANDS = [
   "modelPicker.cycleModel",
   "modelPicker.cycleModelBackward",
@@ -404,6 +407,7 @@ export function ModelReasoningPicker({
       ...(model.routeProviderId
         ? { routeProviderId: model.routeProviderId }
         : {}),
+      unavailable: true,
     }));
   }, [
     isPreviewing,
@@ -792,6 +796,7 @@ export function ModelReasoningPicker({
   }, [open, isCompactViewport, isPointerCoarse]);
 
   const TriggerIcon = hasSelectedModel ? ProviderIcon : undefined;
+  const selectedModelIsUnavailable = selectedModelOption?.unavailable === true;
   const triggerTitleModelLabel = modelIsLoading
     ? "Loading models..."
     : selectedModelLoadFailed
@@ -799,6 +804,7 @@ export function ModelReasoningPicker({
       : triggerModelLabel;
   const triggerTitle = [
     `${selectedProviderLabel}: ${triggerTitleModelLabel}`,
+    selectedModelIsUnavailable ? ` (${UNAVAILABLE_MODEL_QUALIFIER})` : "",
     triggerReasoningLabel ? ` · ${triggerReasoningLabel} reasoning` : "",
     showSelectedFastMode ? " (Fast mode)" : "",
   ].join("");
@@ -850,6 +856,11 @@ export function ModelReasoningPicker({
         {triggerModelTag ? (
           <span className="shrink-0 text-subtle-foreground">
             {triggerModelTag}
+          </span>
+        ) : null}
+        {selectedModelIsUnavailable ? (
+          <span className="shrink-0 text-subtle-foreground">
+            {UNAVAILABLE_MODEL_QUALIFIER}
           </span>
         ) : null}
         {triggerReasoningLabel ? (
@@ -1023,7 +1034,13 @@ export function ModelReasoningPicker({
                         option.label,
                         activeProviderId,
                       )}
-                      qualifier={option.routeProviderId}
+                      qualifier={
+                        option.unavailable
+                          ? [option.routeProviderId, UNAVAILABLE_MODEL_QUALIFIER]
+                              .filter(Boolean)
+                              .join(" · ")
+                          : option.routeProviderId
+                      }
                       selected={!isPreviewing && option.value === modelValue}
                       onClick={() => handleModelSelect(option.value)}
                     />
@@ -1310,7 +1327,13 @@ function MoreModelsSubmenu({
             <MenuRowButton
               key={option.value}
               label={stripModelBrandPrefix(option.label, activeProviderId)}
-              qualifier={option.routeProviderId}
+              qualifier={
+                option.unavailable
+                  ? [option.routeProviderId, UNAVAILABLE_MODEL_QUALIFIER]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : option.routeProviderId
+              }
               selected={!isPreviewing && option.value === modelValue}
               onClick={() => onSelect(option.value)}
             />

@@ -326,6 +326,27 @@ describe("ModelReasoningPicker", () => {
     expect(onSelectedProviderChange).toHaveBeenCalledWith("claude-code");
   });
 
+  it("labels an unavailable selected model on the trigger and its row (#486)", () => {
+    renderPicker({
+      modelOptions: [
+        { value: "gpt-5.5", label: "GPT-5.5" },
+        { value: "retired-model", label: "Retired Model", unavailable: true },
+      ],
+      modelValue: "retired-model",
+    });
+
+    // Closed trigger: the honest marker rides beside the stored label.
+    expect(screen.getByText("Model unavailable")).toBeTruthy();
+
+    // Open menu: the row qualifier marks the same option.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Provider, model and reasoning" }),
+    );
+    expect(screen.getAllByText("Model unavailable").length).toBeGreaterThanOrEqual(
+      2,
+    );
+  });
+
   it("clears the previous provider's search and highlight when cycling", () => {
     const alternateProviderModels = [
       "claude-opus-4-7",
