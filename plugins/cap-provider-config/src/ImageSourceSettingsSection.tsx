@@ -8,7 +8,10 @@ import {
   SettingsSection,
   SettingsWithControl,
 } from "./ui/settings-section";
-import { useProviderConfigs } from "./queries/provider-config-queries";
+import {
+  imageSourceRowSummary,
+  useProviderConfigs,
+} from "./queries/provider-config-queries";
 import {
   useImageSource,
   useSetImageSource,
@@ -85,7 +88,7 @@ function ImageSourcePanel() {
   return (
     <SettingsSection
       title="Image Source"
-      description="Which api=openai-images provider row supplies the generate_image tool. The row's baseUrl, stored key, and first model are the source; switching is hot-applied on the next turn. No source selected = the tool answers that it is not configured (no deployment-env fallback)."
+      description="Which api=openai-images provider row supplies the generate_image tool. The row's baseUrl, stored key, and first model are the source; switching is hot-applied on the next turn. Every candidate lists its first model with the declared 产图元信息 (sizes / output format / per-image price). No source selected = the tool answers that it is not configured (no deployment-env fallback)."
     >
       {candidates.length === 0 ? (
         <SettingsRowList>
@@ -116,14 +119,29 @@ function ImageSourcePanel() {
                   None — generate_image unavailable
                 </Label>
               </div>
-              {candidates.map((id) => (
-                <div className="flex items-center gap-2" key={id}>
-                  <RadioGroupItem value={id} id={`image-source-${id}`} />
-                  <Label htmlFor={`image-source-${id}`} className="text-sm">
-                    {candidateLabel(candidates, id, rowsQuery.data)}
-                  </Label>
-                </div>
-              ))}
+              {candidates.map((id) => {
+                const summary = imageSourceRowSummary(
+                  rowsQuery.data?.find((row) => row.id === id),
+                );
+                return (
+                  <div className="flex items-start gap-2" key={id}>
+                    <RadioGroupItem value={id} id={`image-source-${id}`} />
+                    <div className="space-y-0.5">
+                      <Label htmlFor={`image-source-${id}`} className="text-sm">
+                        {candidateLabel(candidates, id, rowsQuery.data)}
+                      </Label>
+                      {summary !== null ? (
+                        <p
+                          className="font-mono text-2xs text-subtle-foreground"
+                          aria-label={`${id} image metadata`}
+                        >
+                          {summary}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
             </RadioGroup>
           </SettingsWithControl>
         </SettingsRowList>

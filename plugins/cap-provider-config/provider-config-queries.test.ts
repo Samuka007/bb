@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  discoveredImageMetaLine,
+  discoveredImageModelToDraft,
   discoveredMetaLine,
   type DiscoveredModelEntry,
   discoveredModelToDraft,
   discoveredModelEntrySchema,
+  imageModelDraftToWire,
+  imageModelWireToDraft,
+  imageSourceRowSummary,
+  modelFamilyOfApi,
   modelDraftToWire,
+  type ProviderConfigRow,
 } from "./src/queries/provider-config-queries";
 
 /**
@@ -167,5 +174,147 @@ describe("discover wire and write faces", () => {
       reasoningLevels: ["low", "medium", "high", "xhigh"],
       cost: { input: 0.6, output: 2.2, cacheRead: 0.11, cacheWrite: 0.12 },
     });
+  });
+});
+
+/**
+ * #485 the image family on the panel side: image drafts carry image
+ * semantics only (sizes/outputFormat/per-image price), conversion to and
+ * from the wire never smuggles a chat seat, and the family rule is the
+ * exact openai-images api seat.
+ */
+describe("#485 image-family drafts", () => {
+  it("maps a discovered entry onto an image draft without chat seats", () => {
+    const draft = discoveredImageModelToDraft(enrichedEntry);
+    expect(draft).toEqual({
+      id: "glm-5.3",
+      name: "GLM 5.3",
+      description: "",
+      sizes: "",
+      outputFormat: "",
+      costPerImage: "",
+      discoveredMeta: { source: "models_dev" },
+    });
+    expect(draft).not.toHaveProperty("contextWindow");
+    expect(draft).not.toHaveProperty("reasoning");
+  });
+
+  it("imageModelDraftToWire writes image semantics only and rejects bad seats", () => {
+    const wire = imageModelDraftToWire({
+      id: "gpt-image-2",
+      name: "GPT Image 2",
+      description: "",
+      sizes: "1024x1024, 1536x1024",
+      outputFormat: "png",
+      costPerImage: "0.04",
+    });
+    expect(wire).toEqual({
+      id: "gpt-image-2",
+      name: "GPT Image 2",
+      sizes: ["1024x1024", "1536x1024"],
+      outputFormat: "png",
+      cost: { perImage: 0.04 },
+    });
+    expect(wire).not.toHaveProperty("description");
+    const base = {
+      id: "gpt-image-2",
+      name: "",
+      description: "",
+      sizes: "",
+      outputFormat: "",
+      costPerImage: "",
+    };
+    expect(() => imageModelDraftToWire({ ...base, outputFormat: "gif" })).toThrow(
+      /png\/jpeg\/webp/,
+    );
+    expect(() => imageModelDraftToWire({ ...base, costPerImage: "-1" })).toThrow(/non-negative/);
+    expect(() => imageModelDraftToWire({ ...base, id: "  " })).toThrow(/needs an id/);
+    // An all-blank optional seat set serializes to the bare id row.
+    expect(imageModelDraftToWire({ ...base, id: "bare-image" })).toEqual({ id: "bare-image" });
+  });
+
+  it("round-trips stored image entries and degrades broken ones to a blank row", () => {
+    const draft = imageModelWireToDraft({
+      id: "gpt-image-2.5",
+      sizes: ["1024x1024"],
+      outputFormat: "jpeg",
+      cost: { perImage: 0.05 },
+    });
+    expect(draft).toMatchObject({
+      id: "gpt-image-2.5",
+      sizes: "1024x1024",
+      outputFormat: "jpeg",
+      costPerImage: "0.05",
+    });
+    expect(imageModelWireToDraft({ nope: true }).id).toBe("");
+    expect(imageModelWireToDraft("raw-broken-cell").id).toBe("");
+  });
+
+  it("discoveredImageMetaLine renders explicit unknowns and tracks edits", () => {
+    const draft = discoveredImageModelToDraft({
+      id: "gpt-image-2",
+      metadataSource: "none",
+    });
+    expect(discoveredImageMetaLine(draft)).toBe(
+      "source none · sizes unknown · format unknown · price unknown",
+    );
+    draft.sizes = "1024x1024";
+    draft.outputFormat = "png";
+    draft.costPerImage = "0.04";
+    expect(discoveredImageMetaLine(draft)).toBe(
+      "source none · sizes 1024x1024 · format png · price 0.04 USD/image",
+    );
+  });
+
+  it("modelFamilyOfApi splits at the exact openai-images seat", () => {
+    expect(modelFamilyOfApi("openai-images")).toBe("image");
+    expect(modelFamilyOfApi("anthropic-messages")).toBe("chat");
+    expect(modelFamilyOfApi(null)).toBe("chat");
+    // An off-contract spelling is not the family seat — chat, fail-closed.
+    expect(modelFamilyOfApi("OpenAI-Images")).toBe("chat");
+  });
+
+  it("accepts the server family seat on the discover wire (and rejects off-vocabulary values)", () => {
+    expect(
+      discoveredModelEntrySchema.safeParse({ ...enrichedEntry, family: "image" }).success,
+    ).toBe(true);
+    expect(
+      discoveredModelEntrySchema.safeParse({ ...enrichedEntry, family: "video" }).success,
+    ).toBe(false);
+    // The older worker (no family seat) stays parseable — chat fallback.
+    expect(discoveredModelEntrySchema.safeParse(enrichedEntry).success).toBe(true);
+  });
+
+  it("imageSourceRowSummary renders the first model's 产图元信息 honestly", () => {
+    const row = (models: unknown[]): ProviderConfigRow => ({
+      id: "imagey",
+      displayName: "Imagey",
+      baseUrl: "https://images.example.com/v1",
+      api: "openai-images",
+      serviceTier: false,
+      models,
+      hasApiKey: true,
+      status: "ok",
+      warnings: [],
+      dispatchable: true,
+      createdAt: 0,
+      updatedAt: 0,
+      source: "user",
+    });
+    expect(
+      imageSourceRowSummary(
+        row([
+          { id: "gpt-image-2", sizes: ["1024x1024", "1536x1024"], outputFormat: "png", cost: { perImage: 0.04 } },
+          { id: "gpt-image-2.5" },
+        ]),
+      ),
+    ).toBe("gpt-image-2 · 1024x1024, 1536x1024 · png · 0.04 USD/image · +1 more model row(s)");
+    expect(imageSourceRowSummary(row([{ id: "mystery" }]))).toBe(
+      "mystery · sizes unknown · format unknown · price unknown",
+    );
+    expect(imageSourceRowSummary(row(["not-an-entry"]))).toBe(
+      "1 model row(s) · 产图元信息 unavailable (repair the row in Configured)",
+    );
+    expect(imageSourceRowSummary(undefined)).toBeNull();
   });
 });

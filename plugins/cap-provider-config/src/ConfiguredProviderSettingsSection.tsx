@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Badge } from "@bb/shared-ui/badge";
@@ -25,9 +25,16 @@ import {
   deleteProviderConfig,
   discoveredMetaLine,
   discoveredModelToDraft,
+  discoveredImageMetaLine,
+  discoveredImageModelToDraft,
   discoverProviderModels,
+  emptyImageModelDraft,
   emptyModelDraft,
   importModelsYml,
+  imageModelDraftToWire,
+  imageModelWireToDraft,
+  IMAGE_SOURCE_API_FAMILY,
+  modelFamilyOfApi,
   modelDraftToWire,
   modelWireToDraft,
   modelApiFamilySchema,
@@ -42,6 +49,7 @@ import {
   type ProviderConfigModelDraft,
   type ProviderConfigRow,
   type ProviderConfigTestResponse,
+  type ImageModelDraft,
 } from "./queries/provider-config-queries";
 import { PROVIDER_PROJECTIONS_QUERY_KEY } from "./queries/provider-projection-queries";
 import { PluginQueryProvider, pluginQueryClient } from "./plugin-query-client";
@@ -72,7 +80,8 @@ import { ConfirmDeleteDialog, ConfirmDeleteDialogContent } from "./ui/confirm-de
  * — no host-side invalidation hook is reachable from a plugin bundle.
  */
 
-interface EditorState {
+/** The family-agnostic editor shell (fields shared by both families). */
+interface EditorShell {
   /** null = the add form; otherwise the row being edited. */
   editingId: string | null;
   id: string;
@@ -83,13 +92,22 @@ interface EditorState {
   /** undefined = leave the stored key alone; null = clear it. */
   apiKey: string | undefined;
   clearApiKey: boolean;
-  models: ProviderConfigModelDraft[];
   /** Discovery notices: merged-row summary + skip-with-warning lines. */
   notices: string[];
 }
 
+/**
+ * #485 the editor is FAMILY-PAIRED: an api=openai-images row edits image
+ * drafts (sizes/format/per-image price), every other api edits the chat
+ * dictionary. The discriminant is the state's own `family` field, kept in
+ * lockstep with `api` by the one mutation that can move it (applyApiFamily).
+ */
+type EditorState =
+  | (EditorShell & { family: "chat"; models: ProviderConfigModelDraft[] })
+  | (EditorShell & { family: "image"; models: ImageModelDraft[] });
+
 function editorFromRow(row: ProviderConfigRow): EditorState {
-  return {
+  const shell: EditorShell = {
     editingId: row.id,
     id: row.id,
     displayName: row.displayName ?? "",
@@ -98,9 +116,11 @@ function editorFromRow(row: ProviderConfigRow): EditorState {
     serviceTier: row.serviceTier,
     apiKey: undefined,
     clearApiKey: false,
-    models: row.models.map(modelWireToDraft),
     notices: [...row.warnings],
   };
+  return modelFamilyOfApi(row.api) === "image"
+    ? { ...shell, family: "image", models: row.models.map(imageModelWireToDraft) }
+    : { ...shell, family: "chat", models: row.models.map(modelWireToDraft) };
 }
 
 function emptyEditor(): EditorState {
@@ -113,8 +133,88 @@ function emptyEditor(): EditorState {
     serviceTier: false,
     apiKey: undefined,
     clearApiKey: false,
+    family: "chat",
     models: [emptyModelDraft()],
     notices: [],
+  };
+}
+
+/** Did any draft carry a seat the target family cannot represent? */
+function chatSeatsInUse(models: ProviderConfigModelDraft[]): boolean {
+  return models.some(
+    (draft) =>
+      draft.reasoning ||
+      draft.inputImage ||
+      !draft.inputText ||
+      draft.contextWindow.trim() !== "" ||
+      draft.maxTokens.trim() !== "" ||
+      draft.thinkingBudgetTokens.trim() !== "" ||
+      draft.reasoningLevels.length > 0 ||
+      draft.defaultReasoningLevel !== "" ||
+      draft.costInput.trim() !== "" ||
+      draft.costOutput.trim() !== "" ||
+      draft.costCacheRead.trim() !== "" ||
+      draft.costCacheWrite.trim() !== "",
+  );
+}
+
+function imageSeatsInUse(models: ImageModelDraft[]): boolean {
+  return models.some(
+    (draft) =>
+      draft.sizes.trim() !== "" || draft.outputFormat.trim() !== "" || draft.costPerImage.trim() !== "",
+  );
+}
+
+/**
+ * #485 the ONE mutation that moves the editor's family: picking a different
+ * api seat converts the drafts (id/name/description survive; seats the target
+ * family cannot represent are dropped WITH a notice — the wire would 422
+ * them, and a silent drop is not this panel's discipline).
+ */
+function applyApiFamily(state: EditorState, api: string): EditorState {
+  const nextFamily = modelFamilyOfApi(api);
+  if (nextFamily === state.family) return { ...state, api };
+  if (state.family === "chat") {
+    const droppedSeat = chatSeatsInUse(state.models);
+    const models: ImageModelDraft[] = state.models.map((draft) => ({
+      id: draft.id,
+      name: draft.name,
+      description: draft.description,
+      sizes: "",
+      outputFormat: "",
+      costPerImage: "",
+    }));
+    return {
+      ...state,
+      api,
+      family: "image",
+      models,
+      notices: droppedSeat
+        ? [
+            ...state.notices,
+            "api family switched to openai-images — chat seats (reasoning/input/contextWindow/maxTokens/thinking ladder/token cost) dropped; image rows carry sizes/format/per-image price",
+          ]
+        : state.notices,
+    };
+  }
+  const droppedSeat = imageSeatsInUse(state.models);
+  const models: ProviderConfigModelDraft[] = state.models.map((draft) => ({
+    ...emptyModelDraft(),
+    id: draft.id,
+    name: draft.name,
+    description: draft.description,
+  }));
+  return {
+    ...state,
+    api,
+    family: "chat",
+    models,
+    notices: droppedSeat
+      ? [
+          ...state.notices,
+          "api family moved off openai-images — image seats (sizes/outputFormat/per-image price) dropped; chat rows carry the token dictionary",
+        ]
+      : state.notices,
   };
 }
 
@@ -187,8 +287,51 @@ function ApiFamilySelect({
   );
 }
 
-/** One model row inside the editor grid — every catalog seat visible. */
-function ModelRowEditor({
+/** The shared row frame: label, discovery-metadata line, remove control. */
+function ModelRowShell({
+  index,
+  metaLine,
+  disabled,
+  onRemove,
+  children,
+}: {
+  index: number;
+  metaLine: string | null;
+  disabled: boolean;
+  onRemove: () => void;
+  children: ReactNode;
+}) {
+  const label = `Model ${String(index + 1)}`;
+  return (
+    <div className="space-y-2 rounded-md border border-border p-3" aria-label={label}>
+      <div className="flex items-center gap-2">
+        <span className="text-2xs font-medium text-subtle-foreground">{label}</span>
+        {metaLine !== null ? (
+          <span
+            className="text-2xs text-subtle-foreground"
+            aria-label={`${label} discovery metadata`}
+          >
+            Metadata: {metaLine}
+          </span>
+        ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={disabled}
+          aria-label={`Remove ${label}`}
+          onClick={onRemove}
+        >
+          Remove
+        </Button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** One CHAT model row inside the editor grid — every catalog seat visible. */
+function ChatModelRowEditor({
   index,
   draft,
   disabled,
@@ -210,28 +353,12 @@ function ModelRowEditor({
     });
   const label = `Model ${String(index + 1)}`;
   return (
-    <div className="space-y-2 rounded-md border border-border p-3" aria-label={label}>
-      <div className="flex items-center gap-2">
-        <span className="text-2xs font-medium text-subtle-foreground">{label}</span>
-        {draft.discoveredMeta !== undefined ? (
-          <span
-            className="text-2xs text-subtle-foreground"
-            aria-label={`${label} discovery metadata`}
-          >
-            Metadata: {discoveredMetaLine(draft)}
-          </span>
-        ) : null}
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={disabled}
-          aria-label={`Remove ${label}`}
-          onClick={onRemove}
-        >
-          Remove
-        </Button>
-      </div>
+    <ModelRowShell
+      index={index}
+      metaLine={draft.discoveredMeta !== undefined ? discoveredMetaLine(draft) : null}
+      disabled={disabled}
+      onRemove={onRemove}
+    >
       <div className="grid grid-cols-2 gap-2">
         <label className="space-y-1 text-2xs text-subtle-foreground">
           Model id
@@ -429,7 +556,144 @@ function ModelRowEditor({
           </label>
         </div>
       </details>
-    </div>
+    </ModelRowShell>
+  );
+}
+
+const OUTPUT_FORMAT_UNSET = "__unset__";
+
+/** The output-format single-select (unset = the upstream default). */
+function OutputFormatSelect({
+  value,
+  disabled,
+  ariaLabel,
+  onChange,
+}: {
+  value: string;
+  disabled: boolean;
+  ariaLabel: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <Select
+      value={value === "" ? OUTPUT_FORMAT_UNSET : value}
+      disabled={disabled}
+      onValueChange={(next) => onChange(next === OUTPUT_FORMAT_UNSET ? "" : next)}
+    >
+      <SelectTrigger aria-label={ariaLabel} className="h-8 font-mono text-xs">
+        <SelectValue>{value === "" ? "Unset" : value}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={OUTPUT_FORMAT_UNSET}>Unset</SelectItem>
+        {["png", "jpeg", "webp"].map((format) => (
+          <SelectItem key={format} value={format}>
+            {format}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+/**
+ * #485 one IMAGE model row: image semantics only — id/name/description plus
+ * the declared sizes, output format, and per-image price. The chat seats
+ * (reasoning/input/context window/max tokens/thinking ladder/token cost) do
+ * not exist on this row, not even as disabled fields.
+ */
+function ImageModelRowEditor({
+  index,
+  draft,
+  disabled,
+  onChange,
+  onRemove,
+}: {
+  index: number;
+  draft: ImageModelDraft;
+  disabled: boolean;
+  onChange: (next: ImageModelDraft) => void;
+  onRemove: () => void;
+}) {
+  const update = (patch: Partial<ImageModelDraft>) => onChange({ ...draft, ...patch });
+  const label = `Model ${String(index + 1)}`;
+  return (
+    <ModelRowShell
+      index={index}
+      metaLine={draft.discoveredMeta !== undefined ? discoveredImageMetaLine(draft) : null}
+      disabled={disabled}
+      onRemove={onRemove}
+    >
+      <div className="grid grid-cols-2 gap-2">
+        <label className="space-y-1 text-2xs text-subtle-foreground">
+          Model id
+          <Input
+            value={draft.id}
+            disabled={disabled}
+            className="h-8 font-mono text-xs"
+            aria-label={`${label} id`}
+            onChange={(event) => update({ id: event.target.value })}
+          />
+        </label>
+        <label className="space-y-1 text-2xs text-subtle-foreground">
+          Display name
+          <Input
+            value={draft.name}
+            disabled={disabled}
+            className="h-8 text-xs"
+            aria-label={`${label} display name`}
+            onChange={(event) => update({ name: event.target.value })}
+          />
+        </label>
+        <label className="space-y-1 text-2xs text-subtle-foreground">
+          Description
+          <Input
+            value={draft.description}
+            disabled={disabled}
+            className="h-8 text-xs"
+            aria-label={`${label} description`}
+            onChange={(event) => update({ description: event.target.value })}
+          />
+        </label>
+        <label className="space-y-1 text-2xs text-subtle-foreground">
+          Sizes (comma-separated)
+          <Input
+            value={draft.sizes}
+            disabled={disabled}
+            className="h-8 font-mono text-xs"
+            placeholder="1024x1024, 1536x1024"
+            aria-label={`${label} sizes`}
+            onChange={(event) => update({ sizes: event.target.value })}
+          />
+        </label>
+        <label className="space-y-1 text-2xs text-subtle-foreground">
+          Output format
+          <OutputFormatSelect
+            value={draft.outputFormat}
+            disabled={disabled}
+            ariaLabel={`${label} output format`}
+            onChange={(outputFormat) => update({ outputFormat })}
+          />
+        </label>
+        <label className="space-y-1 text-2xs text-subtle-foreground">
+          Price per image (USD)
+          <Input
+            type="number"
+            min={0}
+            step="0.01"
+            value={draft.costPerImage}
+            disabled={disabled}
+            className="h-8 text-xs"
+            placeholder="e.g. 0.04"
+            aria-label={`${label} price per image`}
+            onChange={(event) => update({ costPerImage: event.target.value })}
+          />
+        </label>
+      </div>
+      <p className="text-2xs text-subtle-foreground">
+        Image model rows carry image semantics only — id / sizes / output format / per-image price.
+        Reasoning, context window, and token seats do not exist here.
+      </p>
+    </ModelRowShell>
   );
 }
 
@@ -463,6 +727,9 @@ function ConfiguredProviderPanel() {
       }
       return discoverProviderModels({
         baseUrl: state.baseUrl,
+        // #485 the unsaved-row family hint: an image row being composed
+        // discovers as image (the server annotates every entry accordingly).
+        ...(state.api.trim() !== "" ? { api: state.api.trim() } : {}),
         ...(state.apiKey !== undefined && state.apiKey !== "" ? { apiKey: state.apiKey } : {}),
       });
     },
@@ -475,17 +742,13 @@ function ConfiguredProviderPanel() {
         });
         return;
       }
-      // Skip-with-warning merge: manual rows stay; discovered ids merge in;
-      // unusable entries surface as warnings, never silently dropped.
+      // #485 family-paired merge (skip-with-warning discipline): on an image
+      // row every discovered id lands as an image draft; on a chat row
+      // image-family entries are REFUSED with the Image Source pointer —
+      // never merged as chat models. Manual rows stay either way.
       const knownIds = new Set(state.models.map((model) => model.id.trim()));
-      const merged = [...state.models];
-      let added = 0;
-      for (const model of verdict.models) {
-        if (knownIds.has(model.id)) continue;
-        knownIds.add(model.id);
-        merged.push(discoveredModelToDraft(model));
-        added += 1;
-      }
+      const added: string[] = [];
+      const refusedImageIds: string[] = [];
       // Provenance summary over the whole verdict (#447): the counts name
       // where each row's metadata came from, so a degraded (no-host) run is
       // visible in numbers, not just in the row-level unavailable marking.
@@ -495,12 +758,60 @@ function ConfiguredProviderPanel() {
             `Enrichment: ${String(verdict.models.filter((model) => model.metadataSource === "models_dev").length)}× models.dev, ${String(verdict.models.filter((model) => model.metadataSource === "bundled").length)}× bundled, ${String(verdict.models.filter((model) => model.metadataSource === "none").length)}× no catalog match.`,
           ]
         : [];
+      if (state.family === "image") {
+        const merged = [...state.models];
+        for (const model of verdict.models) {
+          if (knownIds.has(model.id)) continue;
+          knownIds.add(model.id);
+          merged.push(discoveredImageModelToDraft(model));
+          added.push(model.id);
+        }
+        setEditor({
+          ...state,
+          models: merged,
+          notices: [
+            ...state.notices,
+            `Discovered ${String(verdict.models.length)} models (${String(added.length)} new merged).`,
+            ...(added.length > 0
+              ? [
+                  "These models serve image generation — select this row in Settings → Providers → Image Source to hand generate_image to it.",
+                ]
+              : []),
+            ...enrichedNotice,
+            ...verdict.warnings,
+          ],
+        });
+        return;
+      }
+      const merged = [...state.models];
+      for (const model of verdict.models) {
+        if (knownIds.has(model.id)) continue;
+        if (model.family === "image") {
+          refusedImageIds.push(model.id);
+          continue;
+        }
+        knownIds.add(model.id);
+        merged.push(discoveredModelToDraft(model));
+        added.push(model.id);
+      }
+      const refusedNotice =
+        refusedImageIds.length > 0
+          ? (() => {
+              const listed = refusedImageIds.slice(0, 5).join(", ");
+              const listedIds =
+                refusedImageIds.length > 5
+                  ? `${listed} +${String(refusedImageIds.length - 5)} more`
+                  : listed;
+              return `Skipped ${String(refusedImageIds.length)} image-generation model(s) (${listedIds}) — 产图族 cannot import into a chat row; create an api=openai-images row and select it in Settings → Providers → Image Source.`;
+            })()
+          : null;
       setEditor({
         ...state,
         models: merged,
         notices: [
           ...state.notices,
-          `Discovered ${String(verdict.models.length)} models (${String(added)} new merged).`,
+          `Discovered ${String(verdict.models.length)} models (${String(added.length)} new merged).`,
+          ...(refusedNotice !== null ? [refusedNotice] : []),
           ...enrichedNotice,
           ...verdict.warnings,
         ],
@@ -519,7 +830,10 @@ function ConfiguredProviderPanel() {
     mutationFn: async (state: EditorState) => {
       // Throws (surfaced by onError) when a model row is unusable — e.g. a
       // missing id, an off-ladder default rung, or a malformed budget.
-      const models = state.models.map((draft) => modelDraftToWire(draft));
+      const models =
+        state.family === "image"
+          ? state.models.map((draft) => imageModelDraftToWire(draft))
+          : state.models.map((draft) => modelDraftToWire(draft));
       const body = {
         ...(state.displayName.trim() !== "" ? { displayName: state.displayName.trim() } : {}),
         ...(state.baseUrl.trim() !== "" ? { baseUrl: state.baseUrl.trim() } : {}),
@@ -665,7 +979,7 @@ function ConfiguredProviderPanel() {
                 unsetLabel="Provider default"
                 ariaLabel="Provider api family"
                 disabled={isPending}
-                onChange={(api) => setEditor({ ...editor, api })}
+                onChange={(api) => setEditor(applyApiFamily(editor, api))}
               />
             </label>
           </div>
@@ -720,10 +1034,9 @@ function ConfiguredProviderPanel() {
             </Button>
           </div>
           <p className="text-2xs text-subtle-foreground">
-            Discovery reads <code>{"{baseUrl}/models"}</code> (OpenAI models-list) and merges rows
-            below: manual rows stay, discovered ids merge in with their catalog metadata
-            (contextWindow / maxTokens / reasoning / thinking / cost — unknown seats say "unknown"),
-            unusable entries are reported — never silently dropped.
+            {editor.family === "image"
+              ? "Discovery reads {baseUrl}/models and merges rows below as IMAGE model entries (id / sizes / output format / per-image price — unknown seats say \"unknown\"); this row's models serve the generate_image tool, never the chat picker."
+              : "Discovery reads {baseUrl}/models (OpenAI models-list) and merges rows below: manual rows stay, discovered ids merge in with their catalog metadata (contextWindow / maxTokens / reasoning / thinking / cost — unknown seats say \"unknown\"). Image-generation ids are refused here with the Image Source pointer — never silently imported as chat models."}
           </p>
           {editor.notices.length > 0 ? (
             <ul className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-2xs text-foreground">
@@ -733,28 +1046,51 @@ function ConfiguredProviderPanel() {
             </ul>
           ) : null}
           <div className="space-y-2">
-            {editor.models.map((draft, index) => (
-              <ModelRowEditor
-                key={String(index)}
-                index={index}
-                draft={draft}
-                disabled={isPending}
-                onChange={(next) =>
-                  setEditor({
-                    ...editor,
-                    models: editor.models.map((entry, entryIndex) =>
-                      entryIndex === index ? next : entry,
-                    ),
-                  })
-                }
-                onRemove={() =>
-                  setEditor({
-                    ...editor,
-                    models: editor.models.filter((_, entryIndex) => entryIndex !== index),
-                  })
-                }
-              />
-            ))}
+            {editor.family === "image"
+              ? editor.models.map((draft, index) => (
+                  <ImageModelRowEditor
+                    key={String(index)}
+                    index={index}
+                    draft={draft}
+                    disabled={isPending}
+                    onChange={(next) =>
+                      setEditor({
+                        ...editor,
+                        models: editor.models.map((entry, entryIndex) =>
+                          entryIndex === index ? next : entry,
+                        ),
+                      })
+                    }
+                    onRemove={() =>
+                      setEditor({
+                        ...editor,
+                        models: editor.models.filter((_, entryIndex) => entryIndex !== index),
+                      })
+                    }
+                  />
+                ))
+              : editor.models.map((draft, index) => (
+                  <ChatModelRowEditor
+                    key={String(index)}
+                    index={index}
+                    draft={draft}
+                    disabled={isPending}
+                    onChange={(next) =>
+                      setEditor({
+                        ...editor,
+                        models: editor.models.map((entry, entryIndex) =>
+                          entryIndex === index ? next : entry,
+                        ),
+                      })
+                    }
+                    onRemove={() =>
+                      setEditor({
+                        ...editor,
+                        models: editor.models.filter((_, entryIndex) => entryIndex !== index),
+                      })
+                    }
+                  />
+                ))}
             <Button
               type="button"
               variant="outline"
@@ -762,7 +1098,11 @@ function ConfiguredProviderPanel() {
               disabled={isPending}
               aria-label="Add model row"
               onClick={() =>
-                setEditor({ ...editor, models: [...editor.models, emptyModelDraft()] })
+                setEditor(
+                  editor.family === "image"
+                    ? { ...editor, models: [...editor.models, emptyImageModelDraft()] }
+                    : { ...editor, models: [...editor.models, emptyModelDraft()] },
+                )
               }
             >
               Add model row

@@ -69,6 +69,19 @@ export type ModelApiFamily = z.infer<typeof modelApiFamilySchema>;
 export const providerApiFamilySchema = z.enum([...modelApiFamilySchema.options, "openai-images"]);
 export type ProviderApiFamily = z.infer<typeof providerApiFamilySchema>;
 
+/** #485 the row-level image family literal (the server's IMAGE_SOURCE_API_FAMILY). */
+export const IMAGE_SOURCE_API_FAMILY = "openai-images" as const;
+
+/**
+ * #485 the model-entry family of a provider row, derived from its api seat —
+ * the ONE rule every panel face uses (editor mode, discovery merge, candidate
+ * summaries). Only the exact openai-images seat is the image family; an
+ * unset/off-contract seat stays chat.
+ */
+export function modelFamilyOfApi(api: string | null): "chat" | "image" {
+  return api === IMAGE_SOURCE_API_FAMILY ? "image" : "chat";
+}
+
 export const REASONING_LEVEL_OPTIONS = [
   "none",
   "low",
@@ -107,6 +120,21 @@ const providerConfigModelSchema = z.object({
 
 export type ProviderConfigModel = z.infer<typeof providerConfigModelSchema>;
 
+/**
+ * #485 the image row's stored model entry (the server's relayImageModelSchema
+ * mirror): image semantics only — no chat seats exist here.
+ */
+export const providerConfigImageModelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  sizes: z.array(z.string()).optional(),
+  outputFormat: z.string().optional(),
+  cost: z.object({ perImage: z.number() }).optional(),
+});
+
+export type ProviderConfigImageModel = z.infer<typeof providerConfigImageModelSchema>;
+
 export const providerConfigRowSchema = z.object({
   id: z.string().min(1),
   displayName: z.string().nullable(),
@@ -131,6 +159,30 @@ export const providerConfigRowSchema = z.object({
 });
 
 export type ProviderConfigRow = z.infer<typeof providerConfigRowSchema>;
+
+/**
+ * #485 the Image Source candidate row's 产图元信息 line: first model id plus
+ * its declared sizes/format/per-image price (each seat honestly "unknown"
+ * when undeclared), and how many further models the row carries. A row whose
+ * models never parsed says so instead of an empty cell.
+ */
+export function imageSourceRowSummary(row: ProviderConfigRow | undefined): string | null {
+  if (row === undefined) return null;
+  const first = row.models[0];
+  const parsed = providerConfigImageModelSchema.safeParse(first);
+  const more =
+    row.models.length > 1 ? ` · +${String(row.models.length - 1)} more model row(s)` : "";
+  if (!parsed.success) {
+    return `${String(row.models.length)} model row(s) · 产图元信息 unavailable (repair the row in Configured)${more}`;
+  }
+  const model = parsed.data;
+  const sizes =
+    model.sizes === undefined || model.sizes.length === 0 ? "sizes unknown" : model.sizes.join(", ");
+  const format = model.outputFormat ?? "format unknown";
+  const price =
+    model.cost === undefined ? "price unknown" : `${String(model.cost.perImage)} USD/image`;
+  return `${model.id} · ${sizes} · ${format} · ${price}${more}`;
+}
 
 const providerConfigsListResponseSchema = z.object({
   providers: z.array(providerConfigRowSchema),
@@ -198,6 +250,40 @@ export function emptyModelDraft(): ProviderConfigModelDraft {
     costOutput: "",
     costCacheRead: "",
     costCacheWrite: "",
+  };
+}
+
+/**
+ * #485 one IMAGE row's model as the editor holds it: image semantics only
+ * (sizes/outputFormat/per-image price) — the chat seats simply do not exist.
+ * `discoveredMeta` mirrors the chat draft's provenance seat (display only).
+ */
+export interface ImageModelDraft {
+  id: string;
+  name: string;
+  description: string;
+  /** Comma-separated declared sizes (e.g. "1024x1024, 1536x1024"). */
+  sizes: string;
+  /** "" = unset; otherwise one of png/jpeg/webp. */
+  outputFormat: string;
+  /** Per-image price in USD; "" = undeclared. */
+  costPerImage: string;
+  discoveredMeta?: DiscoveredImageModelMeta;
+}
+
+/** The discovery provenance an image draft displays (source only). */
+export interface DiscoveredImageModelMeta {
+  source: "models_dev" | "bundled" | "none" | "unavailable";
+}
+
+export function emptyImageModelDraft(): ImageModelDraft {
+  return {
+    id: "",
+    name: "",
+    description: "",
+    sizes: "",
+    outputFormat: "",
+    costPerImage: "",
   };
 }
 
@@ -311,6 +397,55 @@ export function modelWireToDraft(entry: unknown): ProviderConfigModelDraft {
 }
 
 /**
+ * #485 one image draft → the wire entry. Only image seats serialize; a bad
+ * size list, format, or price throws the SAME editor-grade error a chat
+ * draft throws, so the save face surfaces it instead of writing junk the
+ * server would 422 on.
+ */
+export function imageModelDraftToWire(draft: ImageModelDraft): ProviderConfigImageModel {
+  if (draft.id.trim() === "") throw new Error("a model row needs an id");
+  const sizes = draft.sizes
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+  const outputFormat = draft.outputFormat.trim();
+  if (outputFormat !== "" && !["png", "jpeg", "webp"].includes(outputFormat)) {
+    throw new Error(`output format "${outputFormat}" is not png/jpeg/webp — leave it blank for unset`);
+  }
+  const costRaw = draft.costPerImage.trim();
+  let perImage: number | undefined;
+  if (costRaw !== "") {
+    perImage = optionalNumber(costRaw);
+    if (perImage === undefined || perImage < 0) {
+      throw new Error(`per-image price must be a non-negative number or blank — got "${draft.costPerImage}"`);
+    }
+  }
+  return {
+    id: draft.id.trim(),
+    ...(draft.name.trim() !== "" ? { name: draft.name.trim() } : {}),
+    ...(draft.description.trim() !== "" ? { description: draft.description.trim() } : {}),
+    ...(sizes.length > 0 ? { sizes } : {}),
+    ...(outputFormat !== "" ? { outputFormat } : {}),
+    ...(perImage !== undefined ? { cost: { perImage } } : {}),
+  };
+}
+
+/** Reverse of imageModelDraftToWire: a stored image entry back into drafts. */
+export function imageModelWireToDraft(entry: unknown): ImageModelDraft {
+  const parsed = providerConfigImageModelSchema.safeParse(entry);
+  if (!parsed.success) return { ...emptyImageModelDraft(), id: "" };
+  const model = parsed.data;
+  return {
+    id: model.id,
+    name: model.name ?? "",
+    description: model.description ?? "",
+    sizes: (model.sizes ?? []).join(", "),
+    outputFormat: model.outputFormat ?? "",
+    costPerImage: model.cost === undefined ? "" : String(model.cost.perImage),
+  };
+}
+
+/**
  * One discovered model row with the omp catalog metadata seats (#447). The
  * shape mirrors the server's `discoveredModelEntrySchema` (@cap/daemon-service
  * protocol, the wire 正本): every metadata seat is value-or-null —
@@ -323,6 +458,13 @@ export const discoveredModelEntrySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1).optional(),
   api: z.string().min(1).optional(),
+  /**
+   * #485 the server-derived import family: "image" entries land on an image
+   * row (or are refused on a chat row with the Image Source pointer).
+   * Optional so an older worker (no family seat yet) degrades to the
+   * pre-#485 chat merge instead of failing the parse.
+   */
+  family: z.enum(["chat", "image"]).optional(),
   reasoning: z.boolean().nullable().optional(),
   input: z
     .array(z.enum(["text", "image"]))
@@ -436,6 +578,42 @@ export function discoveredMetaLine(draft: ProviderConfigModelDraft): string {
   ].join(" · ");
 }
 
+/**
+ * #485 one discovered entry → an IMAGE draft (the merge target on an
+ * api=openai-images row): id/name transfer; the image seats start undeclared
+ * (the discovery face carries chat-catalog metadata only) — never a chat
+ * field smuggled onto an image row.
+ */
+export function discoveredImageModelToDraft(entry: DiscoveredModelEntry): ImageModelDraft {
+  return {
+    id: entry.id,
+    name: entry.name ?? "",
+    description: "",
+    sizes: "",
+    outputFormat: "",
+    costPerImage: "",
+    discoveredMeta: { source: entry.metadataSource },
+  };
+}
+
+/**
+ * The image row's discovery display line: source + the image seats, with
+ * looked-and-missed seats rendering the literal "unknown" (the #447 posture
+ * applied to the image dictionary).
+ */
+export function discoveredImageMetaLine(draft: ImageModelDraft): string {
+  const meta = draft.discoveredMeta;
+  if (meta === undefined) return "";
+  const seat = (value: string): string => (value.trim() === "" ? "unknown" : value.trim());
+  const price = draft.costPerImage.trim() === "" ? "unknown" : `${draft.costPerImage.trim()} USD/image`;
+  return [
+    `source ${meta.source}`,
+    `sizes ${seat(draft.sizes)}`,
+    `format ${seat(draft.outputFormat)}`,
+    `price ${price}`,
+  ].join(" · ");
+}
+
 /** The wire shape of one discover verdict (skip-with-warning included). */
 export const providerConfigDiscoverResponseSchema = z.object({
   ok: z.boolean(),
@@ -466,7 +644,8 @@ export interface ProviderConfigWriteBody {
   baseUrl?: string;
   api?: string;
   serviceTier?: boolean;
-  models?: ProviderConfigModel[];
+  /** #485 family-paired: chat rows write chat entries, image rows image entries. */
+  models?: ProviderConfigModel[] | ProviderConfigImageModel[];
   apiKey?: string | null;
 }
 
@@ -545,6 +724,8 @@ export async function testProviderConfig(id: string): Promise<ProviderConfigTest
 export async function discoverProviderModels(body: {
   providerId?: string;
   baseUrl?: string;
+  /** #485 unsaved-row family hint (an api=openai-images new row discovers as image). */
+  api?: string;
   apiKey?: string;
 }): Promise<ProviderConfigDiscoverResponse> {
   return requestJson(

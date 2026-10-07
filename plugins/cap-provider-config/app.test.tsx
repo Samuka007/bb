@@ -599,6 +599,256 @@ describe("ConfiguredProviderSettingsSection", () => {
     expect(screen.getByText(/skipped, never silently dropped/)).toBeTruthy();
   });
 
+  it("#485 an openai-images row edits image seats only and saves image entries", async () => {
+    const calls = routeMock(({ path, init }) => {
+      if (path === "/api/v1/system/providers" && (init?.method ?? "GET") === "GET") {
+        return {
+          status: 200,
+          body: {
+            providers: [
+              rowFixture({
+                id: "scitrace-image",
+                displayName: "SciTrace Image",
+                api: "openai-images",
+                baseUrl: "https://images.example.com/v1",
+                models: [
+                  {
+                    id: "gpt-image-2",
+                    sizes: ["1024x1024", "1536x1024"],
+                    outputFormat: "png",
+                    cost: { perImage: 0.04 },
+                  },
+                ],
+              }),
+            ],
+          },
+        };
+      }
+      if (path === "/api/v1/system/providers/scitrace-image" && init?.method === "PUT") {
+        return { status: 200, body: rowFixture({ id: "scitrace-image", api: "openai-images" }) };
+      }
+      return undefined;
+    });
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit scitrace-image" }));
+
+    // The image seats render…
+    expect(screen.getByLabelText("Model 1 id")).toHaveProperty("value", "gpt-image-2");
+    expect(screen.getByLabelText("Model 1 sizes")).toHaveProperty("value", "1024x1024, 1536x1024");
+    expect(screen.getByLabelText("Model 1 output format").textContent).toBe("png");
+    expect(screen.getByLabelText("Model 1 price per image")).toHaveProperty("value", "0.04");
+    // …and no chat seat exists on the row at all (not even disabled).
+    expect(screen.queryByLabelText("Model 1 context window")).toBeNull();
+    expect(screen.queryByLabelText("Model 1 max tokens")).toBeNull();
+    expect(screen.queryByLabelText("Model 1 thinking budget")).toBeNull();
+    expect(screen.queryByLabelText("Model 1 reasoning capable")).toBeNull();
+    expect(screen.queryByLabelText("Model 1 ladder low")).toBeNull();
+    expect(screen.queryByLabelText("Model 1 cost input")).toBeNull();
+    expect(screen.queryByLabelText("Model 1 api family")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Model 1 sizes"), {
+      target: { value: "1024x1024, 1536x1024, 1024x1536" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => {
+      const put = calls.find(
+        (call) =>
+          call.path === "/api/v1/system/providers/scitrace-image" && call.init?.method === "PUT",
+      );
+      expect(put).toBeDefined();
+      expect(bodyOf(put)).toMatchObject({ api: "openai-images" });
+      expect(bodyOf(put).models).toEqual([
+        {
+          id: "gpt-image-2",
+          sizes: ["1024x1024", "1536x1024", "1024x1536"],
+          outputFormat: "png",
+          cost: { perImage: 0.04 },
+        },
+      ]);
+    });
+  });
+
+  it("#485 a chat row's discovery refuses image-family entries with the Image Source pointer", async () => {
+    routeMock(({ path, init }) => {
+      if (path === "/api/v1/system/providers" && (init?.method ?? "GET") === "GET") {
+        return { status: 200, body: { providers: [rowFixture()] } };
+      }
+      if (path === "/api/v1/system/providers/discover-models" && init?.method === "POST") {
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            status: 200,
+            latencyMs: 12,
+            error: null,
+            models: [
+              {
+                id: "glm-5.3-flash",
+                reasoning: null,
+                input: null,
+                contextWindow: null,
+                maxTokens: null,
+                cost: null,
+                thinking: null,
+                metadataSource: "none",
+                family: "chat",
+              },
+              {
+                id: "gpt-image-2",
+                reasoning: null,
+                input: null,
+                contextWindow: null,
+                maxTokens: null,
+                cost: null,
+                thinking: null,
+                metadataSource: "none",
+                family: "image",
+              },
+            ],
+            warnings: [],
+          },
+        };
+      }
+      return undefined;
+    });
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit panel-one" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discover models" }));
+
+    expect(
+      await screen.findByText(/Skipped 1 image-generation model\(s\) \(gpt-image-2\)/),
+    ).toBeTruthy();
+    // Only the chat entry merged; the image id never became a chat model row.
+    expect(screen.getByLabelText("Model 2 id")).toHaveProperty("value", "glm-5.3-flash");
+    expect(screen.queryByLabelText("Model 3 id")).toBeNull();
+    expect(screen.queryByLabelText("Model 2 sizes")).toBeNull();
+  });
+
+  it("#485 an image row's discovery merges image drafts and recommends the seat", async () => {
+    routeMock(({ path, init }) => {
+      if (path === "/api/v1/system/providers" && (init?.method ?? "GET") === "GET") {
+        return {
+          status: 200,
+          body: {
+            providers: [
+              rowFixture({
+                id: "imagey",
+                displayName: "Imagey",
+                api: "openai-images",
+                baseUrl: "https://images.example.com/v1",
+                models: [{ id: "gpt-image-2" }],
+              }),
+            ],
+          },
+        };
+      }
+      if (path === "/api/v1/system/providers/discover-models" && init?.method === "POST") {
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            status: 200,
+            latencyMs: 8,
+            error: null,
+            models: [
+              {
+                id: "gpt-image-2.5",
+                reasoning: null,
+                input: null,
+                contextWindow: null,
+                maxTokens: null,
+                cost: null,
+                thinking: null,
+                metadataSource: "models_dev",
+                family: "image",
+              },
+            ],
+            warnings: [],
+          },
+        };
+      }
+      return undefined;
+    });
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit imagey" }));
+    fireEvent.click(screen.getByRole("button", { name: "Discover models" }));
+
+    // The discovered row lands as an IMAGE draft: id + image seats, zero chat seats.
+    expect(await screen.findByLabelText("Model 2 id")).toHaveProperty("value", "gpt-image-2.5");
+    expect(screen.getByLabelText("Model 2 sizes")).toHaveProperty("value", "");
+    expect(screen.getByLabelText("Model 2 discovery metadata").textContent).toContain(
+      "sizes unknown",
+    );
+    expect(screen.queryByLabelText("Model 2 context window")).toBeNull();
+    expect(screen.queryByLabelText("Model 2 reasoning capable")).toBeNull();
+    // Seat recommendation for the newly discovered image models.
+    expect(
+      await screen.findByText(/select this row in Settings → Providers → Image Source/),
+    ).toBeTruthy();
+  });
+
+  it("#485 an unsaved image row's discovery carries the family hint and edits image seats", async () => {
+    const calls = routeMock(({ path, init }) => {
+      if (path === "/api/v1/system/providers" && (init?.method ?? "GET") === "GET") {
+        return { status: 200, body: { providers: [] } };
+      }
+      if (path === "/api/v1/system/providers/discover-models" && init?.method === "POST") {
+        return {
+          status: 200,
+          body: { ok: true, status: 200, latencyMs: 5, error: null, models: [], warnings: [] },
+        };
+      }
+      return undefined;
+    });
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Add provider" }));
+    fireEvent.change(screen.getByLabelText("Provider id"), { target: { value: "new-image" } });
+    fireEvent.change(screen.getByLabelText("Provider base URL"), {
+      target: { value: "https://images.example.com/v1" },
+    });
+    await pickFamilySelect("Provider api family", "openai-images");
+    // Switching the family flips the model editor to the image seats.
+    expect(screen.queryByLabelText("Model 1 context window")).toBeNull();
+    expect(screen.getByLabelText("Model 1 sizes")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Discover models" }));
+    await waitFor(() => {
+      const post = calls.find(
+        (call) => call.path === "/api/v1/system/providers/discover-models",
+      );
+      expect(post).toBeDefined();
+      expect(bodyOf(post)).toEqual({
+        baseUrl: "https://images.example.com/v1",
+        api: "openai-images",
+      });
+    });
+  });
+
+  it("#485 switching a row to openai-images converts drafts and drops chat seats with a notice", async () => {
+    routeMock(({ path, init }) => {
+      if (path === "/api/v1/system/providers" && (init?.method ?? "GET") === "GET") {
+        return {
+          status: 200,
+          body: {
+            providers: [
+              rowFixture({
+                models: [{ id: "model-a", name: "Model A", contextWindow: 8192, reasoning: true }],
+              }),
+            ],
+          },
+        };
+      }
+      return undefined;
+    });
+    renderSection();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit panel-one" }));
+    expect(screen.getByLabelText("Model 1 context window")).toHaveProperty("value", "8192");
+    await pickFamilySelect("Provider api family", "openai-images");
+    expect(screen.queryByLabelText("Model 1 context window")).toBeNull();
+    expect(screen.getByLabelText("Model 1 id")).toHaveProperty("value", "model-a");
+    expect(screen.getByLabelText("Model 1 sizes")).toBeTruthy();
+    expect(screen.getByText(/chat seats \(reasoning\/input\/contextWindow/)).toBeTruthy();
+  });
+
   it("shows the test-connection verdict inline", async () => {
     routeMock(({ path, init }) => {
       if (path === "/api/v1/system/providers" && (init?.method ?? "GET") === "GET") {

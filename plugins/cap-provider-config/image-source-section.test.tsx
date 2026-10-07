@@ -165,6 +165,38 @@ describe("ImageSourceSettingsSection", () => {
     });
   });
 
+  it("#485 lists each candidate's 产图元信息 and never a chat seat", async () => {
+    const seat = seatFixture({ candidates: ["imagey"] });
+    routeMock((call) => {
+      if (call.path.endsWith("/system/providers")) {
+        return {
+          status: 200,
+          body: {
+            providers: [
+              {
+                ...rowFixture("imagey", "Imagey"),
+                models: [
+                  {
+                    id: "gpt-image-2",
+                    sizes: ["1024x1024", "1536x1024"],
+                    outputFormat: "png",
+                    cost: { perImage: 0.04 },
+                  },
+                ],
+              },
+            ],
+          },
+        };
+      }
+      return { status: 200, body: seat };
+    });
+    renderSection();
+    expect(
+      await screen.findByText("gpt-image-2 · 1024x1024, 1536x1024 · png · 0.04 USD/image"),
+    ).toBeTruthy();
+    expect(screen.queryByText(/contextWindow|maxTokens|reasoning/)).toBeNull();
+  });
+
   it("surfaces the server's named refusal instead of moving the selection", async () => {
     const seat = seatFixture({ providerId: "imagey", candidates: ["imagey", "texty"] });
     const calls = routeMock((call) => {
