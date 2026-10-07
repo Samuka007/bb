@@ -170,9 +170,10 @@ describe("contract api-family vocabulary (#452)", () => {
 });
 
 describe("ConfiguredProviderSettingsSection", () => {
-  it("registers the two settingsSection slots in canonical order", () => {
+  it("registers the settingsSection slots in canonical order", () => {
     expect(app.settingsSections.map((section: { id: string }) => section.id)).toEqual([
       "configured",
+      "imageSource",
       "server",
     ]);
   });
