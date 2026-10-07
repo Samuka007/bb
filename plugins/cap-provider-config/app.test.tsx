@@ -395,9 +395,7 @@ describe("ConfiguredProviderSettingsSection", () => {
     // Unset shows the inherit caption; the model seat never offers the
     // image-source family — the server rejects it on model rows, so the old
     // shared free-text list would have recreated the 422.
-    expect(screen.getByLabelText("Model 1 api family").textContent).toBe(
-      "Inherit provider family",
-    );
+    expect(screen.getByLabelText("Model 1 api family").textContent).toBe("Inherit provider family");
     await openFamilySelect("Model 1 api family");
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
       "Inherit provider family",
@@ -517,7 +515,30 @@ describe("ConfiguredProviderSettingsSection", () => {
             status: 200,
             latencyMs: 42,
             error: null,
-            models: [{ id: "model-a" }, { id: "discovered-b", name: "Discovered B" }],
+            models: [
+              {
+                id: "discovered-b",
+                name: "Discovered B",
+                api: "openai-responses",
+                reasoning: true,
+                input: ["text", "image"],
+                contextWindow: 200000,
+                maxTokens: 128000,
+                cost: { input: 0.6, output: 2.2, cacheRead: 0.11, cacheWrite: 0.12 },
+                thinking: { mode: "effort", efforts: ["low", "medium", "high"] },
+                metadataSource: "models_dev",
+              },
+              {
+                id: "discovered-c",
+                reasoning: null,
+                input: null,
+                contextWindow: null,
+                maxTokens: null,
+                cost: null,
+                thinking: null,
+                metadataSource: "none",
+              },
+            ],
             warnings: [
               "discovered entry without a usable string id — skipped, never silently dropped",
             ],
@@ -545,10 +566,36 @@ describe("ConfiguredProviderSettingsSection", () => {
     ).toEqual({
       providerId: "panel-one",
     });
-    // Manual row kept; discovered new row appended; warning surfaced.
+    // Manual row kept; discovered rows appended with their catalog metadata;
+    // warning surfaced.
     expect(screen.getByLabelText("Model 1 id")).toHaveProperty("value", "model-a");
+    expect(screen.queryByLabelText("Model 1 discovery metadata")).toBeNull();
     expect(screen.getByLabelText("Model 2 id")).toHaveProperty("value", "discovered-b");
-    expect(await screen.findByText(/1 new merged/)).toBeTruthy();
+    // #447 the enriched row feeds the editor seats, not just id/name.
+    expect(screen.getByLabelText("Model 2 context window")).toHaveProperty("value", "200000");
+    expect(screen.getByLabelText("Model 2 max tokens")).toHaveProperty("value", "128000");
+    // No jest-dom matchers in this suite — checkboxes assert via .checked.
+    expect((screen.getByLabelText("Model 2 reasoning capable") as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect((screen.getByLabelText("Model 2 ladder low") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("Model 2 ladder high") as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByLabelText("Model 2 discovery metadata").textContent).toContain(
+      "source models_dev",
+    );
+    expect(screen.getByLabelText("Model 2 discovery metadata").textContent).toContain(
+      "cost (in/out/cacheRead/cacheWrite) 0.6 / 2.2 / 0.11 / 0.12",
+    );
+    // A row no catalog knows renders explicit unknowns — never blank cells.
+    expect(screen.getByLabelText("Model 3 id")).toHaveProperty("value", "discovered-c");
+    expect(screen.getByLabelText("Model 3 discovery metadata").textContent).toContain(
+      "contextWindow unknown",
+    );
+    expect(screen.getByLabelText("Model 3 discovery metadata").textContent).toContain(
+      "reasoning unknown",
+    );
+    expect(await screen.findByText(/2 new merged/)).toBeTruthy();
+    expect(screen.getByText(/1× models\.dev, 0× bundled, 1× no catalog match/)).toBeTruthy();
     expect(screen.getByText(/skipped, never silently dropped/)).toBeTruthy();
   });
 

@@ -155,6 +155,29 @@ export interface ProviderConfigModelDraft {
   costOutput: string;
   costCacheRead: string;
   costCacheWrite: string;
+  /**
+   * #447 discovery provenance, kept for the row's display face only — set
+   * when the row came out of a discover merge, absent for manual/stored rows.
+   * Never serialized (modelDraftToWire ignores it; the stored catalog schema
+   * rejects display seats).
+   */
+  discoveredMeta?: DiscoveredModelMeta;
+}
+
+/**
+ * The discovery truth a merged row displays (#447): the seats the editor's
+ * checkboxes/inputs cannot express as "looked and unknown" ride here so the
+ * row can render explicit unknowns instead of silently blank fields.
+ */
+export interface DiscoveredModelMeta {
+  /** The wire's metadataSource seat verbatim. */
+  source: "models_dev" | "bundled" | "none" | "unavailable";
+  /** Discovery's reasoning verdict; null = looked and unknown. */
+  reasoning: boolean | null;
+  /** Discovery's input capabilities; null = looked and unknown. */
+  input: ("text" | "image")[] | null;
+  /** The omp thinking ladder verbatim; null = no thinking seat on the row. */
+  thinkingEfforts: string[] | null;
 }
 
 export function emptyModelDraft(): ProviderConfigModelDraft {
@@ -287,13 +310,139 @@ export function modelWireToDraft(entry: unknown): ProviderConfigModelDraft {
   };
 }
 
+/**
+ * One discovered model row with the omp catalog metadata seats (#447). The
+ * shape mirrors the server's `discoveredModelEntrySchema` (@cap/daemon-service
+ * protocol, the wire 正本): every metadata seat is value-or-null —
+ * null = looked and unknown, so the panel renders "unknown", never an empty
+ * cell. `metadataSource` names where the seats came from ("models_dev" live
+ * catalog / "bundled" snapshot / "none" no catalog knew the id /
+ * "unavailable" enrichment never ran — the no-host edge fallback).
+ */
+export const discoveredModelEntrySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).optional(),
+  api: z.string().min(1).optional(),
+  reasoning: z.boolean().nullable().optional(),
+  input: z
+    .array(z.enum(["text", "image"]))
+    .nullable()
+    .optional(),
+  contextWindow: z.number().int().positive().nullable().optional(),
+  maxTokens: z.number().int().positive().nullable().optional(),
+  cost: z
+    .object({
+      input: z.number().nonnegative(),
+      output: z.number().nonnegative(),
+      cacheRead: z.number().nonnegative(),
+      cacheWrite: z.number().nonnegative(),
+    })
+    .nullable()
+    .optional(),
+  thinking: z
+    .object({
+      mode: z.string().min(1).nullable(),
+      efforts: z.array(z.string().min(1)),
+    })
+    .nullable()
+    .optional(),
+  metadataSource: z.enum(["models_dev", "bundled", "none", "unavailable"]),
+});
+
+export type DiscoveredModelEntry = z.infer<typeof discoveredModelEntrySchema>;
+
+/**
+ * #447: one discovered entry → an editor draft. Known catalog seats fill the
+ * editor fields directly (contextWindow/maxTokens/cost/reasoning ladder), so
+ * "Save" persists exactly what discovery learned; unknown seats stay "" and
+ * the row's provenance (`discoveredMeta`) drives the explicit-unknown display
+ * line — a merged row never renders a silently blank cell for metadata the
+ * catalog looked for and missed.
+ */
+export function discoveredModelToDraft(entry: DiscoveredModelEntry): ProviderConfigModelDraft {
+  const efforts = entry.thinking?.efforts ?? [];
+  const levels: ReasoningLevelOption[] = [];
+  for (const level of efforts) {
+    if (
+      (REASONING_LEVEL_OPTIONS as readonly string[]).includes(level) &&
+      !levels.includes(level as ReasoningLevelOption)
+    ) {
+      levels.push(level as ReasoningLevelOption);
+    }
+  }
+  return {
+    id: entry.id,
+    name: entry.name ?? "",
+    description: "",
+    api: entry.api ?? "",
+    reasoning: entry.reasoning === true,
+    inputText:
+      entry.input === null || entry.input === undefined ? true : entry.input.includes("text"),
+    inputImage:
+      entry.input === null || entry.input === undefined ? false : entry.input.includes("image"),
+    contextWindow: entry.contextWindow == null ? "" : String(entry.contextWindow),
+    maxTokens: entry.maxTokens == null ? "" : String(entry.maxTokens),
+    reasoningLevels: levels,
+    defaultReasoningLevel: "",
+    // Discovery carries no budget knowledge — the deployment scalar rules.
+    thinkingBudgetTokens: "",
+    costInput: entry.cost == null ? "" : String(entry.cost.input),
+    costOutput: entry.cost == null ? "" : String(entry.cost.output),
+    costCacheRead: entry.cost == null ? "" : String(entry.cost.cacheRead),
+    costCacheWrite: entry.cost == null ? "" : String(entry.cost.cacheWrite),
+    discoveredMeta: {
+      source: entry.metadataSource,
+      reasoning: entry.reasoning ?? null,
+      input: entry.input ?? null,
+      thinkingEfforts: entry.thinking == null ? null : [...entry.thinking.efforts],
+    },
+  };
+}
+
+/**
+ * The row's discovery display line (#447 acceptance: known values render,
+ * looked-and-missed seats render the literal "unknown" — never an empty
+ * cell). Numeric/cost seats read the live draft fields, so the line tracks
+ * user edits; capability seats read the provenance truth.
+ */
+export function discoveredMetaLine(draft: ProviderConfigModelDraft): string {
+  const meta = draft.discoveredMeta;
+  if (meta === undefined) return "";
+  const seat = (value: string): string => {
+    const trimmed = value.trim();
+    return trimmed === "" ? "unknown" : trimmed;
+  };
+  const costSeats = [draft.costInput, draft.costOutput, draft.costCacheRead, draft.costCacheWrite];
+  const cost = costSeats.every((value) => value.trim() !== "")
+    ? costSeats.map((value) => value.trim()).join(" / ")
+    : "unknown";
+  const reasoning = meta.reasoning === null ? "unknown" : meta.reasoning ? "yes" : "no";
+  const input =
+    meta.input === null ? "unknown" : meta.input.length === 0 ? "none" : meta.input.join("+");
+  const thinking =
+    meta.reasoning === false && meta.thinkingEfforts === null
+      ? "no"
+      : meta.thinkingEfforts === null || meta.thinkingEfforts.length === 0
+        ? "unknown"
+        : meta.thinkingEfforts.join(" / ");
+  return [
+    `source ${meta.source}`,
+    `contextWindow ${seat(draft.contextWindow)}`,
+    `maxTokens ${seat(draft.maxTokens)}`,
+    `reasoning ${reasoning}`,
+    `thinking ${thinking}`,
+    `input ${input}`,
+    `cost (in/out/cacheRead/cacheWrite) ${cost}`,
+  ].join(" · ");
+}
+
 /** The wire shape of one discover verdict (skip-with-warning included). */
 export const providerConfigDiscoverResponseSchema = z.object({
   ok: z.boolean(),
   status: z.number().nullable(),
   latencyMs: z.number().nullable(),
   error: z.string().nullable(),
-  models: z.array(z.object({ id: z.string(), name: z.string().optional() })),
+  models: z.array(discoveredModelEntrySchema),
   warnings: z.array(z.string()),
 });
 
