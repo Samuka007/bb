@@ -23,6 +23,8 @@ import { Textarea } from "@bb/shared-ui/textarea";
 import {
   createProviderConfig,
   deleteProviderConfig,
+  discoveredMetaLine,
+  discoveredModelToDraft,
   discoverProviderModels,
   emptyModelDraft,
   importModelsYml,
@@ -42,10 +44,7 @@ import {
   type ProviderConfigTestResponse,
 } from "./queries/provider-config-queries";
 import { PROVIDER_PROJECTIONS_QUERY_KEY } from "./queries/provider-projection-queries";
-import {
-  PluginQueryProvider,
-  pluginQueryClient,
-} from "./plugin-query-client";
+import { PluginQueryProvider, pluginQueryClient } from "./plugin-query-client";
 import { SettingsSection } from "./ui/settings-section";
 import { ConfirmDeleteDialog, ConfirmDeleteDialogContent } from "./ui/confirm-delete-dialog";
 
@@ -214,6 +213,14 @@ function ModelRowEditor({
     <div className="space-y-2 rounded-md border border-border p-3" aria-label={label}>
       <div className="flex items-center gap-2">
         <span className="text-2xs font-medium text-subtle-foreground">{label}</span>
+        {draft.discoveredMeta !== undefined ? (
+          <span
+            className="text-2xs text-subtle-foreground"
+            aria-label={`${label} discovery metadata`}
+          >
+            Metadata: {discoveredMetaLine(draft)}
+          </span>
+        ) : null}
         <Button
           type="button"
           variant="outline"
@@ -476,15 +483,25 @@ function ConfiguredProviderPanel() {
       for (const model of verdict.models) {
         if (knownIds.has(model.id)) continue;
         knownIds.add(model.id);
-        merged.push({ ...emptyModelDraft(), id: model.id, name: model.name ?? "" });
+        merged.push(discoveredModelToDraft(model));
         added += 1;
       }
+      // Provenance summary over the whole verdict (#447): the counts name
+      // where each row's metadata came from, so a degraded (no-host) run is
+      // visible in numbers, not just in the row-level unavailable marking.
+      const enrichedNotice = verdict.models.some((model) => model.metadataSource !== "unavailable")
+        ? [
+            "",
+            `Enrichment: ${String(verdict.models.filter((model) => model.metadataSource === "models_dev").length)}× models.dev, ${String(verdict.models.filter((model) => model.metadataSource === "bundled").length)}× bundled, ${String(verdict.models.filter((model) => model.metadataSource === "none").length)}× no catalog match.`,
+          ]
+        : [];
       setEditor({
         ...state,
         models: merged,
         notices: [
           ...state.notices,
           `Discovered ${String(verdict.models.length)} models (${String(added)} new merged).`,
+          ...enrichedNotice,
           ...verdict.warnings,
         ],
       });
@@ -704,8 +721,9 @@ function ConfiguredProviderPanel() {
           </div>
           <p className="text-2xs text-subtle-foreground">
             Discovery reads <code>{"{baseUrl}/models"}</code> (OpenAI models-list) and merges rows
-            below: manual rows stay, discovered ids merge in, unusable entries are reported — never
-            silently dropped.
+            below: manual rows stay, discovered ids merge in with their catalog metadata
+            (contextWindow / maxTokens / reasoning / thinking / cost — unknown seats say "unknown"),
+            unusable entries are reported — never silently dropped.
           </p>
           {editor.notices.length > 0 ? (
             <ul className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-2xs text-foreground">
@@ -874,9 +892,9 @@ function ConfiguredProviderPanel() {
         ))}
         {providers.length === 0 && editor === null && !providersQuery.isPending ? (
           <li className="rounded-md border border-dashed border-border p-3 text-sm text-subtle-foreground">
-            No user-configured providers yet. This section lists only rows stored here (the
-            server's provider_configs 正本); the deployment's declared catalog is read-only on
-            the Server section and keeps serving until you add a provider.
+            No user-configured providers yet. This section lists only rows stored here (the server's
+            provider_configs 正本); the deployment's declared catalog is read-only on the Server
+            section and keeps serving until you add a provider.
           </li>
         ) : null}
       </ul>
