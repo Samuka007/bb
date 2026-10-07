@@ -93,6 +93,7 @@ function projectionResponse(): ProjectionFixture {
       executionServiceTier: "default",
       executionReasoningLevel: "none",
       permissionMode: "full",
+      envConfigured: true,
     },
     webSearch: {
       configured: true,
@@ -200,6 +201,8 @@ describe("ServerProviderSettingsSection", () => {
 
     // Relay facts (read-only projection).
     await screen.findByText("anthropic", {}, { timeout: 3_000 });
+    // #484: the env-configured block renders under its legacy-channel label.
+    expect(screen.getByText("Deployment relay channel")).toBeTruthy();
     // The editable chain renders once BOTH faces resolve (the editor's own
     // query fires after the projections mount).
     await screen.findByLabelText("Include brave in the chain", {}, { timeout: 3_000 });
@@ -364,5 +367,29 @@ describe("ServerProviderSettingsSection", () => {
 
     await screen.findByText("mock", {}, { timeout: 3_000 });
     expect(screen.getByText(/mock mode/)).toBeTruthy();
+  });
+
+  // #484: at zero deployment-channel env the harness rows are pure
+  // HARNESS_DEFAULTS synthesis — rendering them read as "my LLM provider is
+  // mock" next to the live D1 Configured rows. The block must vanish; the
+  // editable web_search face stays.
+  it("hides the legacy deployment channel at zero env (#484)", async () => {
+    const response = projectionResponse();
+    response.harness.envConfigured = false;
+    routeMock((call) => {
+      if (call.path.endsWith("/system/web-search")) {
+        return { status: 200, body: webSearchFixture() };
+      }
+      if (call.path.endsWith("/system/provider-projections")) {
+        return { status: 200, body: response };
+      }
+      return undefined;
+    });
+    renderSection();
+
+    await screen.findByLabelText("Include brave in the chain", {}, { timeout: 3_000 });
+    expect(screen.queryByText("Relay mode")).toBeNull();
+    expect(screen.queryByText("Deployment relay channel")).toBeNull();
+    expect(screen.queryByText(/mock mode/)).toBeNull();
   });
 });

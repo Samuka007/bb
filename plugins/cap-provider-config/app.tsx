@@ -14,8 +14,9 @@ import { ServerProviderSettingsSection } from "./src/ServerProviderSettingsSecti
  *   /api/v1/system/providers (D1 provider_configs 正本), discovery, probes.
  * - `imageSource` — the #448 产图源 seat: which openai-images row supplies
  *   generate_image (GET/PUT /api/v1/system/image-source, D1 image_source).
- * - `server` — the #266 read-only projection migrated here: deployment-env
- *   facts (relay harness + web_search chain), no controls.
+ * - `server` — the #266 projection migrated here: the #449 editable
+ *   web_search chain (D1 正本) plus the #484 legacy deployment relay
+ *   channel, rendered only when the deployment sets its env.
  *
  * Both render on the plugin's canonical Settings page
  * (/settings/plugins/cap-provider-config), stacked in registration order
@@ -39,7 +40,8 @@ export default definePluginApp((app) => {
   app.slots.settingsSection({
     id: "server",
     title: "Server",
-    description: "Read-only projection of the deployment-env provider configuration.",
+    description:
+      "Web search engine chain (editable, D1) plus the legacy deployment relay channel — shown only when the deployment sets MODEL_RELAY_* env (#484).",
     component: ServerProviderSettingsSection,
   });
 });
