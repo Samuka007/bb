@@ -104,9 +104,10 @@ function webSearchFixture(overrides: Record<string, unknown> = {}): Record<strin
     ],
     timeoutSeconds: 60,
     browserBackedEngines: ["google", "ecosia", "mojeek"],
-    availableEngines: ["brave", "duckduckgo", "searxng", "startpage", "public"],
+    availableEngines: ["brave", "exa", "duckduckgo", "searxng", "startpage", "public"],
     engines: {
       brave: { hasApiKey: false },
+      exa: { hasApiKey: false },
       searxng: {
         endpoint: null,
         categories: null,
@@ -127,21 +128,35 @@ function dualFaceMock(seat: Record<string, unknown>): { calls: Call[]; seat: Rec
     if (call.path.endsWith("/system/web-search") && call.init?.method === "PUT") {
       const body = JSON.parse(String(call.init.body ?? "{}")) as {
         chain?: string[];
+        engines?: Record<string, { apiKey?: string | null }>;
       };
-      state.seat = {
-        ...state.seat,
-        // A chain write replaces the order; the response still carries the
-        // gate-projection row shape (the server re-reads the stored truth).
-        ...(body.chain !== undefined
-          ? {
-              chain: body.chain.map((engine) => ({
-                engine,
-                credentialsRequired: false,
-                credentialsPresent: true,
-              })),
-            }
-          : body),
-      };
+      const next = { ...state.seat };
+      // A chain write replaces the order; the response still carries the
+      // gate-projection row shape (the server re-reads the stored truth).
+      if (body.chain !== undefined) {
+        next.chain = body.chain.map((engine) => ({
+          engine,
+          credentialsRequired: false,
+          credentialsPresent: true,
+        }));
+      }
+      // Key writes fold into per-engine presence (the server's tri-state
+      // merge + hasApiKey projection): string sets, null clears, absent
+      // keeps. Unrelated engines ride through untouched.
+      if (body.engines !== undefined) {
+        const prior = (next.engines ?? {}) as Record<string, { hasApiKey?: boolean }>;
+        const engines = { ...prior };
+        for (const engine of ["brave", "exa"] as const) {
+          const write = body.engines[engine];
+          if (write === undefined) continue;
+          engines[engine] = {
+            ...prior[engine],
+            hasApiKey: typeof write.apiKey === "string" && write.apiKey !== "",
+          };
+        }
+        next.engines = engines;
+      }
+      state.seat = next;
       return { status: 200, body: state.seat };
     }
     if (call.path.endsWith("/system/web-search")) {
@@ -199,13 +214,14 @@ describe("ServerProviderSettingsSection", () => {
     // Credential gates render as badges — presence, never values.
     expect(screen.getAllByText("Not configured").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Configured").length).toBeGreaterThanOrEqual(1);
-    // The browser-backed exclusion note and the write-only key row.
+    // The browser-backed exclusion note and the write-only key rows
+    // (brave + exa — the keyed-engine pattern).
     expect(
       screen.getByText(
         "google, ecosia, mojeek — browser-backed, excluded from the server-side provider set",
       ),
     ).toBeTruthy();
-    expect(screen.getByPlaceholderText("Type a key")).toBeTruthy();
+    expect(screen.getAllByPlaceholderText("Type a key")).toHaveLength(2);
   });
 
   it("reorders the chain with a full ordered-chain PUT", async () => {
@@ -247,12 +263,15 @@ describe("ServerProviderSettingsSection", () => {
     });
   });
 
-  it("writes the brave key write-only and clears it with ✕", async () => {
+  it("writes the brave and exa keys write-only and clears exa with ✕", async () => {
     const { calls } = dualFaceMock(webSearchFixture());
     renderSection();
-    await screen.findByPlaceholderText("Type a key", {}, { timeout: 3_000 });
+    await screen.findAllByPlaceholderText("Type a key", {}, { timeout: 3_000 });
 
-    const input = screen.getByPlaceholderText("Type a key") as HTMLInputElement;
+    // Two keyed-engine rows now share the write-only pattern; document order
+    // puts the brave row first, the exa row second.
+    const inputs = screen.getAllByPlaceholderText("Type a key") as HTMLInputElement[];
+    const input = inputs[0]!;
     fireEvent.change(input, { target: { value: "brv-secret-449" } });
     // The face has several Save buttons (brave key, SearXNG endpoint, auth);
     // the brave row's is the first.
@@ -265,6 +284,32 @@ describe("ServerProviderSettingsSection", () => {
     });
     // The typed value never renders back (write-only discipline).
     expect(document.body.textContent).not.toContain("brv-secret-449");
+
+    // The exa row writes its own engine scope only.
+    const exaInput = inputs[1]!;
+    fireEvent.change(exaInput, { target: { value: "exa-secret-539" } });
+    fireEvent.click(screen.getAllByText("Save")[1]!);
+    await waitFor(() => {
+      const put = calls.filter(
+        (call) => call.path.endsWith("/system/web-search") && call.init?.method === "PUT",
+      )[1];
+      expect(bodyOf(put)).toEqual({ engines: { exa: { apiKey: "exa-secret-539" } } });
+    });
+    expect(document.body.textContent).not.toContain("exa-secret-539");
+
+    // ✕ clears with the tri-state null payload, scoped to exa.
+    // The refetch flips exa's presence badge first — the ✕ enables on it.
+    await waitFor(() => {
+      const clear = screen.getAllByText("✕")[1] as HTMLButtonElement;
+      expect(clear.disabled).toBe(false);
+    });
+    fireEvent.click(screen.getAllByText("✕")[1]!);
+    await waitFor(() => {
+      const put = calls.filter(
+        (call) => call.path.endsWith("/system/web-search") && call.init?.method === "PUT",
+      )[2];
+      expect(bodyOf(put)).toEqual({ engines: { exa: { apiKey: null } } });
+    });
   });
 
   it("surfaces the server's refusal instead of moving local state", async () => {
@@ -312,6 +357,7 @@ describe("ServerProviderSettingsSection", () => {
         timeoutSeconds: null,
         engines: {
           brave: { hasApiKey: false },
+          exa: { hasApiKey: false },
           searxng: {
             endpoint: null,
             categories: null,

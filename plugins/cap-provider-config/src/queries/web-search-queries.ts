@@ -31,6 +31,7 @@ export const webSearchResponseSchema = z.object({
   availableEngines: z.array(z.string()),
   engines: z.object({
     brave: z.object({ hasApiKey: z.boolean() }),
+    exa: z.object({ hasApiKey: z.boolean() }),
     searxng: z.object({
       endpoint: z.string().nullable(),
       categories: z.string().nullable(),
@@ -53,6 +54,7 @@ export interface WebSearchPutRequest {
   timeoutSeconds?: number;
   engines?: {
     brave?: { apiKey?: string | null };
+    exa?: { apiKey?: string | null };
     searxng?: {
       endpoint?: string | null;
       token?: string | null;

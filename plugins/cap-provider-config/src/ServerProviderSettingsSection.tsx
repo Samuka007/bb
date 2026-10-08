@@ -95,6 +95,7 @@ function useWebSearchWrite(onError: (message: string) => void): {
 
 const EMPTY_ENGINE_CREDENTIALS = {
   brave: { hasApiKey: false },
+  exa: { hasApiKey: false },
   searxng: {
     endpoint: null,
     categories: null,
@@ -230,8 +231,19 @@ function WebSearchEditor() {
         );
       })}
       <TimeoutRow timeoutSeconds={data.timeoutSeconds} onWrite={write} onError={setError} />
-      <BraveCredentialRow
+      <ApiKeyCredentialRow
+        engine="brave"
+        label="Brave API key"
+        description="Brave Search subscription key. Write-only: the stored value never renders; an empty Save keeps it."
         hasApiKey={credentials.brave.hasApiKey}
+        onWrite={write}
+        onError={setError}
+      />
+      <ApiKeyCredentialRow
+        engine="exa"
+        label="Exa API key"
+        description="Exa search API key (api.exa.ai). Write-only: the stored value never renders; an empty Save keeps it."
+        hasApiKey={credentials.exa.hasApiKey}
         onWrite={write}
         onError={setError}
       />
@@ -295,33 +307,43 @@ function TimeoutRow({
   );
 }
 
-/** Write-only Brave API key row: empty input = keep, Save sets, ✕ clears. */
-function BraveCredentialRow({
+/**
+ * Write-only API key row — the keyed-engine credential pattern (Brave/Exa):
+ * empty input = keep, Save sets, ✕ clears. The typed value never renders
+ * back, and the wire payload is scoped to the row's own engine.
+ */
+function ApiKeyCredentialRow({
+  engine,
+  label,
+  description,
   hasApiKey,
   onWrite,
   onError,
 }: {
+  engine: "brave" | "exa";
+  label: string;
+  description: string;
   hasApiKey: boolean;
   onWrite: (payload: WebSearchPutRequest, okMessage: string) => void;
   onError: (message: string | null) => void;
 }) {
   const [value, setValue] = useState("");
+  const payload = (apiKey: string | null): WebSearchPutRequest => ({
+    engines: engine === "brave" ? { brave: { apiKey } } : { exa: { apiKey } },
+  });
   const save = (): void => {
     if (value === "") return;
     onError(null);
-    onWrite({ engines: { brave: { apiKey: value } } }, "Brave API key stored.");
+    onWrite(payload(value), `${label} stored.`);
     setValue("");
   };
   const clear = (): void => {
     onError(null);
-    onWrite({ engines: { brave: { apiKey: null } } }, "Brave API key cleared.");
+    onWrite(payload(null), `${label} cleared.`);
     setValue("");
   };
   return (
-    <SettingsWithControl
-      label="Brave API key"
-      description="Brave Search subscription key. Write-only: the stored value never renders; an empty Save keeps it."
-    >
+    <SettingsWithControl label={label} description={description}>
       <div className="flex items-center gap-2">
         <PresenceBadge present={hasApiKey} />
         <Input
