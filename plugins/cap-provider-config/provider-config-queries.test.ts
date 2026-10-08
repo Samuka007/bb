@@ -46,10 +46,12 @@ describe("discoveredModelToDraft", () => {
     expect(draft.contextWindow).toBe("200000");
     expect(draft.maxTokens).toBe("128000");
     // Panel ladder members map onto the checkbox seats; "minimal" (omp-only
-    // rung, off the panel vocabulary) stays display-only.
-    expect(draft.reasoningLevels).toEqual(["low", "medium", "high", "xhigh"]);
-    expect(draft.defaultReasoningLevel).toBe("");
-    expect(draft.thinkingBudgetTokens).toBe("");
+    // effort, off the panel vocabulary) stays display-only.
+    expect(draft.thinkingEfforts).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(draft.thinkingMode).toBe("effort");
+    expect(draft.thinkingDefault).toBe("");
+    expect(draft.thinkingRequiresEffort).toBe(false);
+    expect(draft.thinkingExtras).toEqual({});
     expect(draft.costInput).toBe("0.6");
     expect(draft.costOutput).toBe("2.2");
     expect(draft.costCacheRead).toBe("0.11");
@@ -77,7 +79,7 @@ describe("discoveredModelToDraft", () => {
     expect(draft.contextWindow).toBe("");
     expect(draft.maxTokens).toBe("");
     expect(draft.reasoning).toBe(false);
-    expect(draft.reasoningLevels).toEqual([]);
+    expect(draft.thinkingEfforts).toEqual([]);
     expect(draft.costInput).toBe("");
     expect(draft.discoveredMeta).toEqual({
       source: "none",
@@ -163,7 +165,12 @@ describe("discover wire and write faces", () => {
     const wire = modelDraftToWire(discoveredModelToDraft(enrichedEntry));
     expect(wire).not.toHaveProperty("discoveredMeta");
     expect(wire).not.toHaveProperty("metadataSource");
-    expect(wire).not.toHaveProperty("thinking");
+    // #534: the discovery thinking DOES serialize (the pi shape — no budget
+    // number); the display-only provenance seat does not.
+    expect(wire.thinking).toEqual({
+      mode: "effort",
+      efforts: ["low", "medium", "high", "xhigh"],
+    });
     expect(wire).toMatchObject({
       id: "glm-5.3",
       name: "GLM 5.3",
@@ -171,7 +178,6 @@ describe("discover wire and write faces", () => {
       reasoning: true,
       contextWindow: 200000,
       maxTokens: 128000,
-      reasoningLevels: ["low", "medium", "high", "xhigh"],
       cost: { input: 0.6, output: 2.2, cacheRead: 0.11, cacheWrite: 0.12 },
     });
   });

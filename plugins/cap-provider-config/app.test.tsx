@@ -17,8 +17,8 @@ import {
  * CRUD onto /api/v1/system/providers with the write-only key protocol
  * (edit omits the key unless re-typed; an explicit clear sends null), the
  * /models discovery merge with skip-with-warning notices, the
- * test-connection verdict display, and the per-row thinkingBudgetTokens
- * seat (-1 = budget-off, blank = deployment default).
+ * test-connection verdict display, and the per-row pi thinking editor
+ * (#534: transport + effort ladder + default — no budget field anywhere).
  *
  * The host fetch carries no app-surface plumbing here — the plugin's
  * queries own it; tests drive `fetch` via vi.stubGlobal.
@@ -313,12 +313,13 @@ describe("ConfiguredProviderSettingsSection", () => {
     fireEvent.change(screen.getByLabelText("Model 1 max tokens"), {
       target: { value: "8192" },
     });
-    fireEvent.change(screen.getByLabelText("Model 1 thinking budget"), {
-      target: { value: "4096" },
-    });
     fireEvent.click(screen.getByLabelText("Model 1 image input"));
-    fireEvent.click(screen.getByLabelText("Model 1 ladder high"));
-    fireEvent.change(screen.getByLabelText("Model 1 default reasoning level"), {
+    fireEvent.click(screen.getByLabelText("Model 1 effort high"));
+    fireEvent.click(screen.getByLabelText("Model 1 requires effort"));
+    fireEvent.change(screen.getByLabelText("Model 1 thinking mode"), {
+      target: { value: "anthropic-budget-effort" },
+    });
+    fireEvent.change(screen.getByLabelText("Model 1 default effort"), {
       target: { value: "high" },
     });
 
@@ -339,23 +340,42 @@ describe("ConfiguredProviderSettingsSection", () => {
         input: ["text", "image"],
         contextWindow: 200000,
         maxTokens: 8192,
-        reasoningLevels: ["high"],
-        defaultReasoningLevel: "high",
-        thinkingBudgetTokens: 4096,
+        reasoning: true,
+        thinking: {
+          mode: "anthropic-budget-effort",
+          efforts: ["high"],
+          defaultLevel: "high",
+          requiresEffort: true,
+        },
       },
     ]);
   });
 
-  it("serializes the budget seats: blank stays absent, -1 sends null", () => {
-    const blank = { ...emptyDraft(), id: "m", thinkingBudgetTokens: "" };
-    expect("thinkingBudgetTokens" in wireOf(blank)).toBe(false);
-    const off = { ...emptyDraft(), thinkingBudgetTokens: "-1", id: "m" };
-    expect(wireOf(off).thinkingBudgetTokens).toBeNull();
-    const set = { ...emptyDraft(), thinkingBudgetTokens: "4096", id: "m" };
-    expect(wireOf(set).thinkingBudgetTokens).toBe(4096);
-    expect(() => wireOf({ ...emptyDraft(), thinkingBudgetTokens: "0", id: "m" })).toThrowError(
-      /positive integer/,
-    );
+  it("serializes the pi thinking seats: no efforts = no seat; extras pass through verbatim", () => {
+    const bare = { ...emptyDraft(), id: "m" };
+    expect("thinking" in wireOf(bare)).toBe(false);
+    expect("reasoning" in wireOf(bare)).toBe(false);
+    const seated = wireOf({
+      ...emptyDraft(),
+      id: "m",
+      thinkingMode: "effort",
+      thinkingEfforts: ["high", "xhigh"],
+      thinkingDefault: "xhigh",
+      thinkingRequiresEffort: true,
+      thinkingExtras: { effortMap: { xhigh: "max" } },
+    });
+    expect(seated.reasoning).toBe(true);
+    expect(seated.thinking).toEqual({
+      mode: "effort",
+      // Canonical order regardless of the checkbox order.
+      efforts: ["high", "xhigh"],
+      defaultLevel: "xhigh",
+      requiresEffort: true,
+      effortMap: { xhigh: "max" },
+    });
+    expect(() =>
+      wireOf({ ...emptyDraft(), id: "m", thinkingEfforts: ["high"], thinkingDefault: "max" }),
+    ).toThrowError(/member of the ladder/);
   });
 
   it("offers the provider seat as a dropdown listing all four contract families (#452)", async () => {
@@ -579,8 +599,8 @@ describe("ConfiguredProviderSettingsSection", () => {
     expect((screen.getByLabelText("Model 2 reasoning capable") as HTMLInputElement).checked).toBe(
       true,
     );
-    expect((screen.getByLabelText("Model 2 ladder low") as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByLabelText("Model 2 ladder high") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("Model 2 effort low") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("Model 2 effort high") as HTMLInputElement).checked).toBe(true);
     expect(screen.getByLabelText("Model 2 discovery metadata").textContent).toContain(
       "source models_dev",
     );
@@ -641,9 +661,9 @@ describe("ConfiguredProviderSettingsSection", () => {
     // …and no chat seat exists on the row at all (not even disabled).
     expect(screen.queryByLabelText("Model 1 context window")).toBeNull();
     expect(screen.queryByLabelText("Model 1 max tokens")).toBeNull();
-    expect(screen.queryByLabelText("Model 1 thinking budget")).toBeNull();
+    expect(screen.queryByLabelText("Model 1 thinking mode")).toBeNull();
     expect(screen.queryByLabelText("Model 1 reasoning capable")).toBeNull();
-    expect(screen.queryByLabelText("Model 1 ladder low")).toBeNull();
+    expect(screen.queryByLabelText("Model 1 effort low")).toBeNull();
     expect(screen.queryByLabelText("Model 1 cost input")).toBeNull();
     expect(screen.queryByLabelText("Model 1 api family")).toBeNull();
 
@@ -984,7 +1004,7 @@ describe("ConfiguredProviderSettingsSection", () => {
   });
 });
 
-// --- draft/wire round-trip helpers for the budget seats ----------------------
+// --- draft/wire round-trip helpers for the pi thinking seats -----------------
 
 function emptyDraft() {
   return {
@@ -997,9 +1017,11 @@ function emptyDraft() {
     inputImage: false,
     contextWindow: "",
     maxTokens: "",
-    reasoningLevels: [],
-    defaultReasoningLevel: "",
-    thinkingBudgetTokens: "",
+    thinkingMode: "",
+    thinkingEfforts: [],
+    thinkingDefault: "",
+    thinkingRequiresEffort: false,
+    thinkingExtras: {},
     costInput: "",
     costOutput: "",
     costCacheRead: "",

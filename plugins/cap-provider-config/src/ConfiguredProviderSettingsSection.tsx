@@ -40,7 +40,9 @@ import {
   modelApiFamilySchema,
   providerApiFamilySchema,
   PROVIDER_CONFIGS_QUERY_KEY,
-  REASONING_LEVEL_OPTIONS,
+  EFFORT_OPTIONS,
+  THINKING_MODE_OPTIONS,
+  type EffortOption,
   replaceProviderConfig,
   testProviderConfig,
   useProviderConfigs,
@@ -59,8 +61,9 @@ import { ConfirmDeleteDialog, ConfirmDeleteDialogContent } from "./ui/confirm-de
 /**
  * Settings → Providers → Configured (#362): the USER-face write path onto
  * the D1 provider_configs 正本. The panel adds/edits/removes providers
- * (baseUrl / api family / write-only apiKey / full model directory with
- * per-row thinkingBudgetTokens), pulls upstream /models discovery, and
+ * (baseUrl / api family / write-only apiKey / full model directory with the
+ * pi thinking editor — transport + effort ladder + default), pulls upstream
+ * /models discovery, and
  * probes test-connection — all hot against `/api/v1/system/providers`.
  * (#364) The paste import lifts an omp `~/.omp/agent/models.yml` fragment
  * into the same rows in one request — "cloud = local omp" in one paste.
@@ -148,9 +151,10 @@ function chatSeatsInUse(models: ProviderConfigModelDraft[]): boolean {
       !draft.inputText ||
       draft.contextWindow.trim() !== "" ||
       draft.maxTokens.trim() !== "" ||
-      draft.thinkingBudgetTokens.trim() !== "" ||
-      draft.reasoningLevels.length > 0 ||
-      draft.defaultReasoningLevel !== "" ||
+      draft.thinkingEfforts.length > 0 ||
+      draft.thinkingMode !== "" ||
+      draft.thinkingDefault !== "" ||
+      draft.thinkingRequiresEffort ||
       draft.costInput.trim() !== "" ||
       draft.costOutput.trim() !== "" ||
       draft.costCacheRead.trim() !== "" ||
@@ -345,11 +349,11 @@ function ChatModelRowEditor({
   onRemove: () => void;
 }) {
   const update = (patch: Partial<ProviderConfigModelDraft>) => onChange({ ...draft, ...patch });
-  const toggleLevel = (level: (typeof REASONING_LEVEL_OPTIONS)[number]) =>
+  const toggleEffort = (level: EffortOption) =>
     update({
-      reasoningLevels: draft.reasoningLevels.includes(level)
-        ? draft.reasoningLevels.filter((entry) => entry !== level)
-        : [...draft.reasoningLevels, level],
+      thinkingEfforts: draft.thinkingEfforts.includes(level)
+        ? draft.thinkingEfforts.filter((entry) => entry !== level)
+        : [...draft.thinkingEfforts, level],
     });
   const label = `Model ${String(index + 1)}`;
   return (
@@ -426,17 +430,20 @@ function ChatModelRowEditor({
           />
         </label>
         <label className="space-y-1 text-2xs text-subtle-foreground">
-          Thinking budget (tokens)
-          <Input
-            type="number"
-            min={-1}
-            value={draft.thinkingBudgetTokens}
-            disabled={disabled}
-            placeholder="blank = deployment default · -1 off"
-            className="h-8 text-xs"
-            aria-label={`${label} thinking budget`}
-            onChange={(event) => update({ thinkingBudgetTokens: event.target.value })}
-          />
+          Thinking transport (pi mode)
+          <select
+            value={draft.thinkingMode}
+            disabled={disabled || draft.thinkingEfforts.length === 0}
+            aria-label={`${label} thinking mode`}
+            className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+            onChange={(event) => update({ thinkingMode: event.target.value })}
+          >
+            {THINKING_MODE_OPTIONS.map((mode) => (
+              <option key={mode} value={mode}>
+                {mode}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
       <div className="flex flex-wrap items-center gap-3 text-2xs text-subtle-foreground">
@@ -473,29 +480,39 @@ function ChatModelRowEditor({
         </label>
       </div>
       <div className="space-y-1 text-2xs text-subtle-foreground">
-        <span>Effort ladder (reasoningLevels / default):</span>
+        <span>Effort ladder (thinking.efforts — "none" is always offered off):</span>
         <div className="flex flex-wrap items-center gap-3">
-          {REASONING_LEVEL_OPTIONS.map((level) => (
+          {EFFORT_OPTIONS.map((level) => (
             <label key={level} className="flex items-center gap-1.5">
               <input
                 type="checkbox"
-                checked={draft.reasoningLevels.includes(level)}
+                checked={draft.thinkingEfforts.includes(level)}
                 disabled={disabled}
-                aria-label={`${label} ladder ${level}`}
-                onChange={() => toggleLevel(level)}
+                aria-label={`${label} effort ${level}`}
+                onChange={() => toggleEffort(level)}
               />
               {level}
             </label>
           ))}
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={draft.thinkingRequiresEffort}
+              disabled={disabled}
+              aria-label={`${label} requires effort`}
+              onChange={(event) => update({ thinkingRequiresEffort: event.target.checked })}
+            />
+            requiresEffort (off must be explicit)
+          </label>
           <select
-            value={draft.defaultReasoningLevel}
-            disabled={disabled || draft.reasoningLevels.length === 0}
-            aria-label={`${label} default reasoning level`}
+            value={draft.thinkingDefault}
+            disabled={disabled || draft.thinkingEfforts.length === 0}
+            aria-label={`${label} default effort`}
             className="h-8 rounded-md border border-border bg-background px-2 text-xs"
-            onChange={(event) => update({ defaultReasoningLevel: event.target.value })}
+            onChange={(event) => update({ thinkingDefault: event.target.value })}
           >
-            <option value="">default…</option>
-            {draft.reasoningLevels.map((level) => (
+            <option value="">default (lowest)…</option>
+            {draft.thinkingEfforts.map((level) => (
               <option key={level} value={level}>
                 {level}
               </option>

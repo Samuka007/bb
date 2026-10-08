@@ -82,18 +82,45 @@ export function modelFamilyOfApi(api: string | null): "chat" | "image" {
   return api === IMAGE_SOURCE_API_FAMILY ? "image" : "chat";
 }
 
-export const REASONING_LEVEL_OPTIONS = [
-  "none",
+/**
+ * #534 the pi effort ladder (pi Effort minus minimal — the server's
+ * relayCatalogModelSchema refuses minimal): the efforts checkboxes offer
+ * exactly the rungs the edge directory can project. "none" is not here —
+ * thinking-off is always offered by the composer; it is not a capability.
+ */
+export const EFFORT_OPTIONS = [
   "low",
   "medium",
   "high",
   "xhigh",
-  "ultracode",
   "max",
-  "ultra",
 ] as const;
 
-export type ReasoningLevelOption = (typeof REASONING_LEVEL_OPTIONS)[number];
+export type EffortOption = (typeof EFFORT_OPTIONS)[number];
+
+/** The pi ThinkingControlMode vocabulary (the wire transport select). */
+export const THINKING_MODE_OPTIONS = [
+  "effort",
+  "budget",
+  "google-level",
+  "anthropic-adaptive",
+  "anthropic-budget-effort",
+] as const;
+
+export type ThinkingModeOption = (typeof THINKING_MODE_OPTIONS)[number];
+
+/** The row's pi thinking block (loose panel-side mirror of the server shape). */
+export const thinkingSchema = z
+  .object({
+    mode: z.string().min(1),
+    efforts: z.array(z.string()).min(1),
+    defaultLevel: z.string().optional(),
+    effortMap: z.record(z.string(), z.string()).optional(),
+    effortRouting: z.record(z.string(), z.string()).optional(),
+    effortBudgets: z.record(z.string(), z.number()).optional(),
+    requiresEffort: z.boolean().optional(),
+  })
+  .optional();
 
 const providerConfigModelSchema = z.object({
   id: z.string().min(1),
@@ -104,10 +131,14 @@ const providerConfigModelSchema = z.object({
   contextWindow: z.number().optional(),
   maxTokens: z.number().optional(),
   description: z.string().optional(),
+  /** #534 the pi thinking block (the ladder + wire transport). */
+  thinking: thinkingSchema,
+  /**
+   * #534 the RETIRED pre-pi ladder seat, read for DISPLAY only (a stored
+   * legacy row shows its declared ladder until the next save normalizes the
+   * stored JSON onto the pi shape; nothing serializes it back).
+   */
   reasoningLevels: z.array(z.string()).optional(),
-  defaultReasoningLevel: z.string().optional(),
-  /** The row's thinking budget (#362): wins over the deployment scalar. */
-  thinkingBudgetTokens: z.number().int().positive().nullable().optional(),
   cost: z
     .object({
       input: z.number(),
@@ -199,10 +230,24 @@ export interface ProviderConfigModelDraft {
   inputImage: boolean;
   contextWindow: string;
   maxTokens: string;
-  reasoningLevels: ReasoningLevelOption[];
-  defaultReasoningLevel: string;
-  /** "" = unset (the deployment scalar rules); a positive integer = budget. */
-  thinkingBudgetTokens: string;
+  /** "" = no thinking seat (the row has no controllable effort surface). */
+  thinkingMode: string;
+  /** The declared effort ladder (EFFORT_OPTIONS subset, in ladder order). */
+  thinkingEfforts: EffortOption[];
+  /** "" = pi default (defaultSupportedEffort — the lowest declared effort). */
+  thinkingDefault: string;
+  /** Off-request must be explicitly suppressed on the wire (glm anchor). */
+  thinkingRequiresEffort: boolean;
+  /**
+   * The advanced pi seats (effortMap / effortRouting / effortBudgets) —
+   * passthrough-verbatim so an imported deepseek/routing row survives a
+   * panel re-save (first-class editing stays on mode/efforts/default).
+   */
+  thinkingExtras: {
+    effortMap?: Record<string, string>;
+    effortRouting?: Record<string, string>;
+    effortBudgets?: Record<string, number>;
+  };
   costInput: string;
   costOutput: string;
   costCacheRead: string;
@@ -243,9 +288,11 @@ export function emptyModelDraft(): ProviderConfigModelDraft {
     inputImage: false,
     contextWindow: "",
     maxTokens: "",
-    reasoningLevels: [],
-    defaultReasoningLevel: "",
-    thinkingBudgetTokens: "",
+    thinkingMode: "",
+    thinkingEfforts: [],
+    thinkingDefault: "",
+    thinkingRequiresEffort: false,
+    thinkingExtras: {},
     costInput: "",
     costOutput: "",
     costCacheRead: "",
@@ -296,29 +343,30 @@ function optionalNumber(value: string): number | undefined {
 /** Serialize an editor draft into the wire model entry (empty seats drop). */
 export function modelDraftToWire(draft: ProviderConfigModelDraft): ProviderConfigModel {
   if (draft.id.trim() === "") throw new Error("a model row needs an id");
-  const reasoningLevels = draft.reasoningLevels;
-  const defaultLevel = draft.defaultReasoningLevel;
-  if (defaultLevel !== "" && !reasoningLevels.includes(defaultLevel as ReasoningLevelOption)) {
-    throw new Error(`default reasoning level "${defaultLevel}" must be a member of the ladder`);
+  const efforts = draft.thinkingEfforts;
+  if (draft.thinkingDefault !== "" && !efforts.includes(draft.thinkingDefault as EffortOption)) {
+    throw new Error(`default effort "${draft.thinkingDefault}" must be a member of the ladder`);
   }
-  // A budget edit is either dropped ("" → absent, the deployment scalar
-  // rules), cleared (explicit -1 → null = budget-off), or set to the typed
-  // positive integer. The server schema (relayCatalogModelSchema) accepts
-  // int-positive-or-null; a bad value fails the PUT/PATCH with a named 422
-  // the editor surfaces.
-  const budgetRaw = draft.thinkingBudgetTokens.trim();
-  let thinkingBudgetTokens: number | null | undefined;
-  if (budgetRaw === "-1") {
-    thinkingBudgetTokens = null;
-  } else if (budgetRaw !== "") {
-    const parsed = optionalNumber(budgetRaw);
-    if (parsed === undefined || parsed <= 0 || !Number.isInteger(parsed)) {
-      throw new Error(
-        `thinking budget must be a positive integer (tokens), "" for unset, or -1 for budget-off — got "${draft.thinkingBudgetTokens}"`,
-      );
-    }
-    thinkingBudgetTokens = parsed;
-  }
+  // #534 the pi thinking seat: checked efforts (canonical order) + the wire
+  // transport + the advanced passthrough. NO budget number is invented — a
+  // budget-transport row without effortBudgets rides the server's named
+  // default ladder. No checked efforts = no thinking seat at all (the pi
+  // gate then offers exactly [none]).
+  const extrasSeated =
+    draft.thinkingExtras.effortMap !== undefined ||
+    draft.thinkingExtras.effortRouting !== undefined ||
+    draft.thinkingExtras.effortBudgets !== undefined;
+  const thinking =
+    efforts.length > 0
+      ? {
+          mode: draft.thinkingMode === "" ? "budget" : draft.thinkingMode,
+          efforts: EFFORT_OPTIONS.filter((effort) => efforts.includes(effort)),
+          ...(draft.thinkingDefault !== "" ? { defaultLevel: draft.thinkingDefault } : {}),
+          ...(draft.thinkingRequiresEffort ? { requiresEffort: true } : {}),
+          ...(extrasSeated ? { ...draft.thinkingExtras } : {}),
+        }
+      : undefined;
+  const hasThinking = thinking !== undefined;
   const input: ("text" | "image")[] = [];
   if (draft.inputText) input.push("text");
   if (draft.inputImage) input.push("image");
@@ -338,7 +386,8 @@ export function modelDraftToWire(draft: ProviderConfigModelDraft): ProviderConfi
     ...(draft.name.trim() !== "" ? { name: draft.name.trim() } : {}),
     ...(draft.api.trim() !== "" ? { api: draft.api.trim() } : {}),
     ...(draft.description.trim() !== "" ? { description: draft.description.trim() } : {}),
-    ...(draft.reasoning ? { reasoning: true } : {}),
+    // omp buildModel semantics: a thinking declaration reasons.
+    ...(draft.reasoning || hasThinking ? { reasoning: true } : {}),
     ...(input.length > 0 ? { input } : {}),
     ...(optionalNumber(draft.contextWindow) !== undefined
       ? { contextWindow: optionalNumber(draft.contextWindow) }
@@ -346,9 +395,7 @@ export function modelDraftToWire(draft: ProviderConfigModelDraft): ProviderConfi
     ...(optionalNumber(draft.maxTokens) !== undefined
       ? { maxTokens: optionalNumber(draft.maxTokens) }
       : {}),
-    ...(reasoningLevels.length > 0 ? { reasoningLevels: [...reasoningLevels] } : {}),
-    ...(defaultLevel !== "" ? { defaultReasoningLevel: defaultLevel } : {}),
-    ...(thinkingBudgetTokens !== undefined ? { thinkingBudgetTokens } : {}),
+    ...(hasThinking ? { thinking } : {}),
     ...(costComplete
       ? {
           cost: {
@@ -367,8 +414,13 @@ export function modelWireToDraft(entry: unknown): ProviderConfigModelDraft {
   const parsed = providerConfigModelSchema.safeParse(entry);
   if (!parsed.success) return { ...emptyModelDraft(), id: "" };
   const model = parsed.data;
-  const levels = (model.reasoningLevels ?? []).filter((level): level is ReasoningLevelOption =>
-    (REASONING_LEVEL_OPTIONS as readonly string[]).includes(level),
+  // #534 the pi thinking block; a stored pre-#534 row still displays its
+  // declared ladder (the retired reasoningLevels seat, display-only) — the
+  // next save normalizes the stored JSON onto the pi shape.
+  const thinking = model.thinking;
+  const declaredEfforts = model.reasoningLevels ?? thinking?.efforts;
+  const efforts = (Array.isArray(declaredEfforts) ? declaredEfforts : []).filter(
+    (level): level is EffortOption => (EFFORT_OPTIONS as readonly string[]).includes(String(level)),
   );
   return {
     id: model.id,
@@ -380,15 +432,19 @@ export function modelWireToDraft(entry: unknown): ProviderConfigModelDraft {
     inputImage: (model.input ?? []).includes("image"),
     contextWindow: model.contextWindow === undefined ? "" : String(model.contextWindow),
     maxTokens: model.maxTokens === undefined ? "" : String(model.maxTokens),
-    reasoningLevels: levels,
-    defaultReasoningLevel: model.defaultReasoningLevel ?? "",
-    // null → "-1" (budget-off); undefined → "" (unset); number → the value.
-    thinkingBudgetTokens:
-      model.thinkingBudgetTokens === null
-        ? "-1"
-        : model.thinkingBudgetTokens === undefined
-          ? ""
-          : String(model.thinkingBudgetTokens),
+    thinkingMode: thinking?.mode ?? "",
+    thinkingEfforts: EFFORT_OPTIONS.filter((effort) => efforts.includes(effort)),
+    thinkingDefault: thinking?.defaultLevel ?? "",
+    thinkingRequiresEffort: thinking?.requiresEffort === true,
+    thinkingExtras: {
+      ...(thinking?.effortMap !== undefined ? { effortMap: { ...thinking.effortMap } } : {}),
+      ...(thinking?.effortRouting !== undefined
+        ? { effortRouting: { ...thinking.effortRouting } }
+        : {}),
+      ...(thinking?.effortBudgets !== undefined
+        ? { effortBudgets: { ...thinking.effortBudgets } }
+        : {}),
+    },
     costInput: model.cost === undefined ? "" : String(model.cost.input),
     costOutput: model.cost === undefined ? "" : String(model.cost.output),
     costCacheRead: model.cost === undefined ? "" : String(model.cost.cacheRead),
@@ -502,16 +558,9 @@ export type DiscoveredModelEntry = z.infer<typeof discoveredModelEntrySchema>;
  * catalog looked for and missed.
  */
 export function discoveredModelToDraft(entry: DiscoveredModelEntry): ProviderConfigModelDraft {
-  const efforts = entry.thinking?.efforts ?? [];
-  const levels: ReasoningLevelOption[] = [];
-  for (const level of efforts) {
-    if (
-      (REASONING_LEVEL_OPTIONS as readonly string[]).includes(level) &&
-      !levels.includes(level as ReasoningLevelOption)
-    ) {
-      levels.push(level as ReasoningLevelOption);
-    }
-  }
+  const efforts = (entry.thinking?.efforts ?? []).filter((level): level is EffortOption =>
+    (EFFORT_OPTIONS as readonly string[]).includes(level),
+  );
   return {
     id: entry.id,
     name: entry.name ?? "",
@@ -524,10 +573,14 @@ export function discoveredModelToDraft(entry: DiscoveredModelEntry): ProviderCon
       entry.input === null || entry.input === undefined ? false : entry.input.includes("image"),
     contextWindow: entry.contextWindow == null ? "" : String(entry.contextWindow),
     maxTokens: entry.maxTokens == null ? "" : String(entry.maxTokens),
-    reasoningLevels: levels,
-    defaultReasoningLevel: "",
-    // Discovery carries no budget knowledge — the deployment scalar rules.
-    thinkingBudgetTokens: "",
+    // The discovery verdict's pi thinking rides the draft: the declared
+    // mode verbatim (null → "budget", the edge's incumbent transport) and
+    // the edge-expressible efforts. NO budget number is invented.
+    thinkingMode: entry.thinking?.mode ?? "budget",
+    thinkingEfforts: EFFORT_OPTIONS.filter((effort) => efforts.includes(effort)),
+    thinkingDefault: "",
+    thinkingRequiresEffort: false,
+    thinkingExtras: {},
     costInput: entry.cost == null ? "" : String(entry.cost.input),
     costOutput: entry.cost == null ? "" : String(entry.cost.output),
     costCacheRead: entry.cost == null ? "" : String(entry.cost.cacheRead),
