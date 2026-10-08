@@ -383,7 +383,7 @@ describe("ServerProviderSettingsSection", () => {
   // must follow chain position; not-in-chain rows trail in vocabulary order.
   it("renders chain rows in position order, not-in-chain rows after (#538)", async () => {
     // The user's screenshot shape: chain [searxng, public, duckduckgo]
-    // against the alphabetical vocabulary [brave, duckduckgo, searxng,
+    // against the server vocabulary [brave, exa, duckduckgo, searxng,
     // startpage, public].
     dualFaceMock(
       webSearchFixture({
@@ -406,13 +406,14 @@ describe("ServerProviderSettingsSection", () => {
       "Include Public Web in the chain",
       "Include duckduckgo in the chain",
       "Include brave in the chain",
+      "Include exa in the chain",
       "Include startpage in the chain",
     ]);
     // The position copy now agrees with the row order.
     expect(screen.getByText("Chain position 1 — credential-free engine.")).toBeTruthy();
     expect(screen.getByText("Chain position 2 — credential-free engine.")).toBeTruthy();
     expect(screen.getByText("Chain position 3 — credential-free engine.")).toBeTruthy();
-    expect(screen.getAllByText("Not in the chain — toggle on to append it last.")).toHaveLength(2);
+    expect(screen.getAllByText("Not in the chain — toggle on to append it last.")).toHaveLength(3);
     // Reorder affordances agree too: position 1 cannot move up, the last
     // chain row cannot move down.
     expect((screen.getByLabelText("Move searxng up") as HTMLButtonElement).disabled).toBe(true);
@@ -429,7 +430,7 @@ describe("ServerProviderSettingsSection", () => {
   it("stacks the SearXNG credentials row so the label keeps its width (#538)", async () => {
     dualFaceMock(webSearchFixture());
     renderSection();
-    await screen.findByPlaceholderText("Type a key", {}, { timeout: 3_000 });
+    await screen.findAllByPlaceholderText("Type a key", {}, { timeout: 3_000 });
 
     const credentialsLabel = screen.getByText("SearXNG credentials");
     const credentialsRow = credentialsLabel.closest("div.flex-col");
