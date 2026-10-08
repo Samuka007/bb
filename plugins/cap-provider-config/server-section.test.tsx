@@ -331,6 +331,76 @@ describe("ServerProviderSettingsSection", () => {
     expect(screen.queryByLabelText("Include brave in the chain")).toBeNull();
   });
 
+  // #538 regression: the rows used to render in the server's alphabetical
+  // `availableEngines` vocabulary order while the per-row labels said
+  // "Chain position 3 / 1 / 2" — the chain read scrambled. In-chain rows
+  // must follow chain position; not-in-chain rows trail in vocabulary order.
+  it("renders chain rows in position order, not-in-chain rows after (#538)", async () => {
+    // The user's screenshot shape: chain [searxng, public, duckduckgo]
+    // against the alphabetical vocabulary [brave, duckduckgo, searxng,
+    // startpage, public].
+    dualFaceMock(
+      webSearchFixture({
+        chain: [
+          { engine: "searxng", credentialsRequired: false, credentialsPresent: true },
+          { engine: "public", credentialsRequired: false, credentialsPresent: true },
+          { engine: "duckduckgo", credentialsRequired: false, credentialsPresent: true },
+        ],
+      }),
+    );
+    renderSection();
+    await screen.findByLabelText("Include searxng in the chain", {}, { timeout: 3_000 });
+
+    // Document order of the include toggles IS the rendered row order.
+    const renderedOrder = screen
+      .getAllByLabelText(/^Include .+ in the chain$/)
+      .map((toggle) => toggle.getAttribute("aria-label"));
+    expect(renderedOrder).toEqual([
+      "Include searxng in the chain",
+      "Include Public Web in the chain",
+      "Include duckduckgo in the chain",
+      "Include brave in the chain",
+      "Include startpage in the chain",
+    ]);
+    // The position copy now agrees with the row order.
+    expect(screen.getByText("Chain position 1 — credential-free engine.")).toBeTruthy();
+    expect(screen.getByText("Chain position 2 — credential-free engine.")).toBeTruthy();
+    expect(screen.getByText("Chain position 3 — credential-free engine.")).toBeTruthy();
+    expect(screen.getAllByText("Not in the chain — toggle on to append it last.")).toHaveLength(2);
+    // Reorder affordances agree too: position 1 cannot move up, the last
+    // chain row cannot move down.
+    expect((screen.getByLabelText("Move searxng up") as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByLabelText("Move duckduckgo down") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect((screen.getByLabelText("Move searxng down") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  // #538 regression: the credentials row packed a badge + three inputs +
+  // two buttons into the side-by-side control column (`shrink-0`), which
+  // squeezed the `min-w-0` label column down to word-at-a-time. The row is
+  // stacked now: label above, wrap-friendly full-width controls below.
+  it("stacks the SearXNG credentials row so the label keeps its width (#538)", async () => {
+    dualFaceMock(webSearchFixture());
+    renderSection();
+    await screen.findByPlaceholderText("Type a key", {}, { timeout: 3_000 });
+
+    const credentialsLabel = screen.getByText("SearXNG credentials");
+    const credentialsRow = credentialsLabel.closest("div.flex-col");
+    expect(credentialsRow).toBeTruthy();
+    // Stacked: no side-by-side split at sm+ (the split is what starved the
+    // label column via its shrink-0 control side).
+    expect(credentialsRow!.className).not.toContain("sm:flex-row");
+    // The three inputs share ONE wrap-friendly control row.
+    const controls = screen.getByPlaceholderText("Token").parentElement!;
+    expect(controls.className).toContain("flex-wrap");
+    expect(screen.getByPlaceholderText("Basic user").parentElement).toBe(controls);
+    expect(screen.getByPlaceholderText("Basic password").parentElement).toBe(controls);
+    // Contrast pin: single-field rows (Brave) keep the side-by-side split.
+    const braveRow = screen.getByText("Brave API key").closest("div.flex-col");
+    expect(braveRow!.className).toContain("sm:flex-row");
+  });
+
   // #500: the legacy deployment-channel block and its #484 env gate are
   // deleted with the env scalars they projected — the "renders the editable
   // chain editor" case above pins that no relay UI exists at all.

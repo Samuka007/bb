@@ -78,6 +78,13 @@ export interface SettingsWithControlProps {
   label: string;
   labelBadge?: string;
   description?: ReactNode;
+  /**
+   * #538 stack the label above full-width controls instead of the
+   * side-by-side split. The split pins the control column `shrink-0`, so a
+   * control cluster wider than half the card (multi-input rows) starves the
+   * `min-w-0` label column down to word-at-a-time.
+   */
+  stacked?: boolean;
   children: ReactNode;
 }
 
@@ -93,13 +100,15 @@ export function SettingsWithControl({
   label,
   labelBadge,
   description,
+  stacked = false,
   children,
 }: SettingsWithControlProps) {
   return (
     <div
       className={cn(
-        "flex flex-col gap-2.5 sm:flex-row sm:justify-between sm:gap-5",
-        description ? "sm:items-start" : "sm:items-center",
+        "flex flex-col gap-2.5",
+        !stacked && "sm:flex-row sm:justify-between sm:gap-5",
+        !stacked && (description ? "sm:items-start" : "sm:items-center"),
       )}
     >
       <div className="min-w-0 flex-1">
@@ -113,7 +122,7 @@ export function SettingsWithControl({
           </p>
         ) : null}
       </div>
-      <div className="shrink-0 sm:flex sm:justify-end">{children}</div>
+      <div className={cn(!stacked && "shrink-0 sm:flex sm:justify-end")}>{children}</div>
     </div>
   );
 }

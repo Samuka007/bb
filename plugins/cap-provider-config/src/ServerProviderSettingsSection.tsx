@@ -144,6 +144,18 @@ function WebSearchEditor() {
   const chain = data.chain.map((entry) => entry.engine);
   const gateOf = (engine: string) =>
     data.chain.find((entry) => entry.engine === engine);
+  // #538 the rows read in chain order: in-chain engines sorted by their
+  // position, not-in-chain engines trailing in the server's fixed vocabulary
+  // order (stable sort) — otherwise the "Chain position N" labels fight the
+  // row layout and the chain reads scrambled.
+  const orderedEngines = [...data.availableEngines].sort((a, b) => {
+    const posA = chain.indexOf(a);
+    const posB = chain.indexOf(b);
+    if (posA !== -1 && posB !== -1) return posA - posB;
+    if (posA !== -1) return -1;
+    if (posB !== -1) return 1;
+    return 0;
+  });
 
   const move = (engine: string, delta: -1 | 1): void => {
     const index = chain.indexOf(engine);
@@ -168,7 +180,7 @@ function WebSearchEditor() {
 
   return (
     <SettingsRowList>
-      {data.availableEngines.map((engine) => {
+      {orderedEngines.map((engine) => {
         const gate = gateOf(engine);
         const inChain = gate !== undefined;
         const position = inChain ? chain.indexOf(engine) + 1 : null;
@@ -417,10 +429,13 @@ function SearxngCredentialRow({
         </div>
       </SettingsWithControl>
       <SettingsWithControl
+        stacked
         label="SearXNG credentials"
         description="Bearer token or Basic auth pair (Basic wins when both are set). Write-only: values never render back."
       >
-        <div className="flex items-center gap-2">
+        {/* #538 stacked full-width controls: three inputs plus actions don't
+            fit the side-by-side control column without starving the label. */}
+        <div className="flex flex-wrap items-center gap-2">
           <PresenceBadge present={searxng.hasToken || searxng.hasBasicAuth} />
           <Input
             className="w-40"
