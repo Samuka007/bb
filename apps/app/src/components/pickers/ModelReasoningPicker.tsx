@@ -80,6 +80,9 @@ interface ModelLabelParts {
 }
 
 const FAILED_TO_LOAD_MODELS_LABEL = "Failed to load models";
+/** #486: the selected-only pool's dispatch-dead marker (a deployment that
+ * fails such dispatches closed). Shown on the picker row and the trigger tag. */
+const UNAVAILABLE_MODEL_QUALIFIER = "Model unavailable";
 const MODEL_CYCLE_COMMANDS = [
   "modelPicker.cycleModel",
   "modelPicker.cycleModelBackward",
@@ -404,6 +407,7 @@ export function ModelReasoningPicker({
       ...(model.routeProviderId
         ? { routeProviderId: model.routeProviderId }
         : {}),
+      unavailable: true,
     }));
   }, [
     isPreviewing,
@@ -792,6 +796,7 @@ export function ModelReasoningPicker({
   }, [open, isCompactViewport, isPointerCoarse]);
 
   const TriggerIcon = hasSelectedModel ? ProviderIcon : undefined;
+  const selectedModelIsUnavailable = selectedModelOption?.unavailable === true;
   const triggerTitleModelLabel = modelIsLoading
     ? "Loading models..."
     : selectedModelLoadFailed
@@ -799,6 +804,7 @@ export function ModelReasoningPicker({
       : triggerModelLabel;
   const triggerTitle = [
     `${selectedProviderLabel}: ${triggerTitleModelLabel}`,
+    selectedModelIsUnavailable ? ` (${UNAVAILABLE_MODEL_QUALIFIER})` : "",
     triggerReasoningLabel ? ` · ${triggerReasoningLabel} reasoning` : "",
     showSelectedFastMode ? " (Fast mode)" : "",
   ].join("");
@@ -843,6 +849,9 @@ export function ModelReasoningPicker({
             "min-w-0 truncate",
             modelIsLoading && "animate-shine whitespace-nowrap",
             triggerModelValueIsDestructive && "text-destructive-text",
+            // #499: a selection the directory no longer serves reads as
+            // inactive (gray) beside its honest "Model unavailable" marker.
+            selectedModelIsUnavailable && "text-muted-foreground",
           )}
         >
           {triggerModelBase}
@@ -850,6 +859,11 @@ export function ModelReasoningPicker({
         {triggerModelTag ? (
           <span className="shrink-0 text-subtle-foreground">
             {triggerModelTag}
+          </span>
+        ) : null}
+        {selectedModelIsUnavailable ? (
+          <span className="shrink-0 text-subtle-foreground">
+            {UNAVAILABLE_MODEL_QUALIFIER}
           </span>
         ) : null}
         {triggerReasoningLabel ? (
@@ -1023,7 +1037,14 @@ export function ModelReasoningPicker({
                         option.label,
                         activeProviderId,
                       )}
-                      qualifier={option.routeProviderId}
+                      qualifier={
+                        option.unavailable
+                          ? [option.routeProviderId, UNAVAILABLE_MODEL_QUALIFIER]
+                              .filter(Boolean)
+                              .join(" · ")
+                          : option.routeProviderId
+                      }
+                      unavailable={option.unavailable === true}
                       selected={!isPreviewing && option.value === modelValue}
                       onClick={() => handleModelSelect(option.value)}
                     />
@@ -1310,7 +1331,14 @@ function MoreModelsSubmenu({
             <MenuRowButton
               key={option.value}
               label={stripModelBrandPrefix(option.label, activeProviderId)}
-              qualifier={option.routeProviderId}
+              qualifier={
+                option.unavailable
+                  ? [option.routeProviderId, UNAVAILABLE_MODEL_QUALIFIER]
+                      .filter(Boolean)
+                      .join(" · ")
+                  : option.routeProviderId
+              }
+              unavailable={option.unavailable === true}
               selected={!isPreviewing && option.value === modelValue}
               onClick={() => onSelect(option.value)}
             />
@@ -1338,6 +1366,7 @@ function ResetBrowseStateOnContentUnmount({
 function MenuRowButton({
   label,
   qualifier,
+  unavailable,
   selected,
   onClick,
   isActive,
@@ -1348,6 +1377,8 @@ function MenuRowButton({
 }: {
   label: string;
   qualifier?: string;
+  /** #499: absent from the served directory — render inactive (gray). */
+  unavailable?: boolean;
   selected: boolean;
   onClick: () => void;
   isActive?: boolean;
@@ -1382,7 +1413,7 @@ function MenuRowButton({
       {...hoverProps}
     >
       <span
-        className="truncate"
+        className={cn("truncate", unavailable && "text-muted-foreground")}
         title={qualifier ? `${label} · ${qualifier}` : label}
       >
         {base}

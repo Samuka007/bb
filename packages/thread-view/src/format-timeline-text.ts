@@ -380,6 +380,12 @@ function formatWorkSummaryDetails(
   const lines: string[] = [];
   const childContext = nestedContext(context, null);
   for (const child of row.children) {
+    // #3250: summary children widen to include completed reasoning rows;
+    // they render through the generic row formatter (header + detail).
+    if (child.kind === "system") {
+      lines.push(formatRow(child, childContext));
+      continue;
+    }
     if (
       (child.workKind === "command" || child.workKind === "tool") &&
       hasTimelineExplorationIntent(child)

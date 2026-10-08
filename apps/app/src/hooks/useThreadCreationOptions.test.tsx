@@ -890,6 +890,131 @@ describe("useThreadCreationOptions", () => {
     });
   });
 
+  it("labels selected-only pool rows unavailable (#486)", async () => {
+    vi.mocked(sdk.system.executionOptions).mockResolvedValue({
+      ...executionOptionsResponse(),
+      selectedOnlyModels: [
+        {
+          id: "retired-model",
+          model: "retired-model",
+          displayName: "Retired Model",
+          description: "",
+          supportedReasoningEfforts: [],
+          defaultReasoningEffort: "none",
+          isDefault: false,
+        },
+      ],
+    });
+    const { wrapper } = createQueryClientTestHarness();
+    const { result } = renderHook(
+      () =>
+        useThreadCreationOptions({
+          scope: "component-local",
+          resetKey: "thr_pool_unavailable",
+          initialProviderId: GLOBAL_PROVIDER_ID,
+          initialModel: "retired-model",
+          initialReasoningLevel: "high",
+          initialPermissionMode: "full",
+        }),
+      { wrapper },
+    );
+
+    // The pool keeps the stored selection rendered (never silently recovered
+    // onto the catalog default), and the row carries the honest marker.
+    await waitFor(() => {
+      expect(result.current.selectedModel).toBe("retired-model");
+      const promoted = result.current.modelOptions.find(
+        (option) => option.value === "retired-model",
+      );
+      expect(promoted?.unavailable).toBe(true);
+      expect(
+        result.current.modelOptions.find(
+          (option) => option.value === "global-model",
+        )?.unavailable,
+      ).toBeUndefined();
+    });
+  });
+
+  it("flags a dropped selection unavailable for the composer gate (#499)", async () => {
+    vi.mocked(sdk.system.executionOptions).mockResolvedValue({
+      ...executionOptionsResponse(),
+      selectedOnlyModels: [
+        {
+          id: "retired-model",
+          model: "retired-model",
+          displayName: "Retired Model",
+          description: "",
+          supportedReasoningEfforts: [],
+          defaultReasoningEffort: "none",
+          isDefault: false,
+        },
+      ],
+    });
+    const { wrapper } = createQueryClientTestHarness();
+    const { result } = renderHook(
+      () =>
+        useThreadCreationOptions({
+          scope: "component-local",
+          resetKey: "thr_499_unavailable",
+          initialProviderId: GLOBAL_PROVIDER_ID,
+          initialModel: "retired-model",
+        }),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.selectedModelUnavailable).toBe(true);
+    });
+  });
+
+  it("never gates a selection the directory still serves (#499)", async () => {
+    const { wrapper } = createQueryClientTestHarness();
+    const { result } = renderHook(
+      () =>
+        useThreadCreationOptions({
+          scope: "component-local",
+          resetKey: "thr_499_served",
+          initialProviderId: GLOBAL_PROVIDER_ID,
+          initialModel: "global-model",
+        }),
+      { wrapper },
+    );
+
+    await waitFor(() => {
+      expect(result.current.selectedModel).toBe("global-model");
+      expect(result.current.selectedModelUnavailable).toBe(false);
+    });
+  });
+
+  it("preserves a missing selection instead of recovering onto the catalog default (#499)", async () => {
+    const { wrapper } = createQueryClientTestHarness();
+    const { result } = renderHook(
+      () =>
+        useThreadCreationOptions({
+          scope: "component-local",
+          resetKey: "thr_499_missing",
+          initialProviderId: GLOBAL_PROVIDER_ID,
+          preserveMissingModelSelection: true,
+        }),
+      { wrapper },
+    );
+
+    // The catalog loaded, but the zeroth cell stays empty — no synthesized
+    // default, no active model, nothing to dispatch.
+    await waitFor(() => {
+      expect(result.current.modelOptions.length).toBeGreaterThan(0);
+    });
+    expect(result.current.selectedModel).toBe("");
+    expect(result.current.activeModel).toBeUndefined();
+    expect(result.current.selectedModelUnavailable).toBe(false);
+
+    act(() => {
+      result.current.setSelectedModel("project-model");
+    });
+    expect(result.current.selectedModel).toBe("project-model");
+    expect(result.current.executionInputSources.model).toBe("explicit");
+  });
+
   it("lets the server resolve the catalog default when no selection exists", async () => {
     const { wrapper } = createQueryClientTestHarness();
 

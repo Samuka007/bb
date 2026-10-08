@@ -91,6 +91,11 @@ export interface UseThreadCreationOptionsResult<TExecutionInputSources> {
   selectedProviderDisplayName: string;
   selectedProviderComposerActions: readonly ProviderComposerAction[];
   selectedModel: string;
+  /**
+   * #499: a verified catalog no longer serves the effective selection — the
+   * composer must gate the send instead of dispatching into a 422.
+   */
+  selectedModelUnavailable: boolean;
   setSelectedModel: StringSelectionSetter;
   serviceTier: ServiceTier | undefined;
   setServiceTier: ServiceTierSelectionSetter;
@@ -162,7 +167,10 @@ export function useThreadCreationOptions(
   options: UsePromptModelReasoningOptions,
 ): UseThreadCreationOptionsResult<ScopedExecutionInputSources>;
 export function useThreadCreationOptions(
-  options?: UsePromptModelReasoningOptions,
+  options?: UsePromptModelReasoningOptions & {
+    /** Component-local only (see UseComponentLocalCreationOptions). */
+    preserveMissingModelSelection?: boolean;
+  },
 ): UseThreadCreationOptionsResult<ScopedExecutionInputSources> {
   const {
     enabled = true,
@@ -173,6 +181,7 @@ export function useThreadCreationOptions(
     initialPermissionMode,
     initialReasoningLevel,
     initialServiceTier,
+    preserveMissingModelSelection = false,
     preferConnectedProviderWhenUnset = false,
     preferenceProjectId,
     resolveProviderRouting,
@@ -497,6 +506,13 @@ export function useThreadCreationOptions(
     selectedModelSelection,
   ]);
   const selectedModel = useMemo(() => {
+    // #499 zeroth cell: a caller that preserves a missing selection never
+    // recovers onto the catalog default. The empty model IS the thread truth
+    // (legacy/selection-less rows); the composer blocks the send until the
+    // user picks a model explicitly.
+    if (preserveMissingModelSelection && selectedModelSelection.length === 0) {
+      return "";
+    }
     // An unverified catalog (discovery error, or preloaded placeholder rows) is
     // temporary: keep an existing explicit selection instead of treating a
     // partial/provisional catalog as proof that it disappeared. Once discovery
@@ -517,7 +533,12 @@ export function useThreadCreationOptions(
       availableModels.find((model) => model.isDefault)?.model ??
       availableModels[0].model
     );
-  }, [availableModels, modelCatalogIsUnverified, selectedModelSelection]);
+  }, [
+    availableModels,
+    modelCatalogIsUnverified,
+    preserveMissingModelSelection,
+    selectedModelSelection,
+  ]);
   // True when the stored string is not what will run: either the model is gone
   // and the catalog default replaces it, or a prefix-free Pi id resolved to its
   // canonical row. Both cases send the model explicitly, so the stored value
@@ -526,6 +547,37 @@ export function useThreadCreationOptions(
     !modelCatalogIsUnverified &&
     rawSelectedModel.length > 0 &&
     selectedModel !== rawSelectedModel;
+  // #486: rows served through the selected-only pool are absent from the
+  // active directory — this deployment fails such dispatches closed (422
+  // model_unknown), so the picker labels them honestly instead of rendering
+  // them as ordinary runnable choices.
+  const unavailableModelIds = useMemo(() => {
+    const active = new Set(
+      (executionOptionsQuery.data?.models ?? []).map((model) => model.model),
+    );
+    return new Set(
+      (executionOptionsQuery.data?.selectedOnlyModels ?? [])
+        .filter((model) => !active.has(model.model))
+        .map((model) => model.model),
+    );
+  }, [
+    executionOptionsQuery.data?.models,
+    executionOptionsQuery.data?.selectedOnlyModels,
+  ]);
+
+  // #499: the composer's pre-send gate reads this. A VERIFIED catalog that no
+  // longer serves the effective selection (the #486 selected-only pool case,
+  // or an empty #434 directory) means the dispatch would fail closed — the
+  // composer blocks and the card offers an explicit fallback instead of
+  // letting the user discover it as a send-time 422. Provisional/placeholder
+  // catalogs never gate: absence is not evidence until discovery succeeded.
+  const selectedModelUnavailable =
+    !modelCatalogIsUnverified &&
+    !isLoadingModels &&
+    selectedModel.length > 0 &&
+    !(executionOptionsQuery.data?.models ?? []).some(
+      (model) => model.model === selectedModel,
+    );
 
   const modelOptions = useMemo(
     (): ModelPickerOption[] =>
@@ -535,8 +587,9 @@ export function useThreadCreationOptions(
         ...(model.routeProviderId
           ? { routeProviderId: model.routeProviderId }
           : {}),
+        ...(unavailableModelIds.has(model.model) ? { unavailable: true } : {}),
       })),
-    [availableModels],
+    [availableModels, unavailableModelIds],
   );
 
   // Models behind the picker's collapsed "More models" section. A promoted
@@ -555,16 +608,23 @@ export function useThreadCreationOptions(
           ...(model.routeProviderId
             ? { routeProviderId: model.routeProviderId }
             : {}),
+          unavailable: true,
         })),
     [executionOptionsQuery.data?.selectedOnlyModels, availableModels],
   );
 
   const activeModel = useMemo(
-    () =>
-      availableModels.find((model) => model.model === selectedModel) ??
-      availableModels.find((model) => model.isDefault) ??
-      availableModels[0],
-    [availableModels, selectedModel],
+    () => {
+      if (preserveMissingModelSelection && selectedModel.length === 0) {
+        return undefined;
+      }
+      return (
+        availableModels.find((model) => model.model === selectedModel) ??
+        availableModels.find((model) => model.isDefault) ??
+        availableModels[0]
+      );
+    },
+    [availableModels, preserveMissingModelSelection, selectedModel],
   );
 
   const reasoningOptions = useMemo((): PickerOption<ReasoningLevel>[] => {
@@ -948,6 +1008,7 @@ export function useThreadCreationOptions(
       selectedProviderInfo?.displayName ?? effectiveProviderId,
     selectedProviderComposerActions,
     selectedModel,
+    selectedModelUnavailable,
     setSelectedModel,
     serviceTier,
     setServiceTier,

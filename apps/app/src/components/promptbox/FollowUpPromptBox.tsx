@@ -144,6 +144,7 @@ function isKeyboardFocusTarget(target: EventTarget | null): boolean {
 export type FollowUpBlockedReason =
   | "loading-execution-options"
   | "loading-pending-interactions"
+  | "model-unavailable"
   | "pending-interaction"
   | "provisioning"
   | "stopping"
@@ -156,8 +157,12 @@ export type FollowUpSubmitMode =
   | { kind: "queue"; onStop: () => void }
   /** Runtime is pre-start or waiting on the host — can't send/queue, but can stop. */
   | { kind: "stop-only"; onStop: () => void }
-  /** Can't submit and can't stop — show why. */
-  | { kind: "blocked"; reason: FollowUpBlockedReason };
+  /**
+   * Can't submit — show why. A live run keeps its stop affordance via
+   * `onStop` even while blocked (e.g. #499's model-unavailable gate must not
+   * strand a running turn without its stop control).
+   */
+  | { kind: "blocked"; reason: FollowUpBlockedReason; onStop?: () => void };
 
 export interface FollowUpComposerProps {
   history: HistoryConfig;
@@ -207,6 +212,14 @@ export interface FollowUpPromptBoxProps {
    * hidden in that case.
    */
   contextWindowUsage: ContextWindowUsage | null;
+  /**
+   * Optional Compact action embedded in the context-window indicator popover
+   * (hermes-style single control). Omit for secondary composers, which
+   * render no indicator.
+   */
+  compactAction?: ComponentProps<
+    typeof ThreadContextWindowIndicator
+  >["compactAction"];
   /**
    * Execution controls (provider + model + service tier + reasoning) rendered
    * in PromptBox's footer slot. Callers omit provider.onChange so the picker
@@ -304,6 +317,7 @@ function FollowUpPromptBoxWithComposer({
   composer,
   environmentSummary,
   contextWindowUsage,
+  compactAction,
   execution,
   permission,
   readOnly,
@@ -333,12 +347,17 @@ function FollowUpPromptBoxWithComposer({
     submitMode.reason === "loading-pending-interactions";
   const isProvisioning =
     submitMode.kind === "blocked" && submitMode.reason === "provisioning";
+  const isModelUnavailable =
+    submitMode.kind === "blocked" &&
+    submitMode.reason === "model-unavailable";
   const isUnavailable =
     submitMode.kind === "blocked" && submitMode.reason === "unavailable";
   const onStopRuntime =
     submitMode.kind === "queue" || submitMode.kind === "stop-only"
       ? submitMode.onStop
-      : undefined;
+      : submitMode.kind === "blocked"
+        ? submitMode.onStop
+        : undefined;
   const canStopRuntime = onStopRuntime !== undefined;
   const attachmentCount = attachments.items?.length ?? 0;
   const composerScope =
@@ -738,9 +757,11 @@ function FollowUpPromptBoxWithComposer({
                       ? "Checking pending interactions..."
                       : isProvisioning
                         ? "Provisioning..."
-                        : isUnavailable
-                          ? "Unavailable"
-                          : "Submit (Enter)",
+                        : isModelUnavailable
+                          ? "Model unavailable — select a model"
+                          : isUnavailable
+                            ? "Unavailable"
+                            : "Submit (Enter)",
           isRunning: canStopRuntime,
         }}
         typeahead={typeahead}
@@ -771,7 +792,10 @@ function FollowUpPromptBoxWithComposer({
           <div className="flex shrink-0 items-center gap-2">
             {permissionControl}
             {contextWindowUsage ? (
-              <ThreadContextWindowIndicator usage={contextWindowUsage} />
+              <ThreadContextWindowIndicator
+                usage={contextWindowUsage}
+                {...(compactAction ? { compactAction } : {})}
+              />
             ) : null}
           </div>
         </div>

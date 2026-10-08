@@ -1,0 +1,128 @@
+import type { ReactNode } from "react";
+import { cn } from "@bb/shared-ui/lib/utils";
+
+/**
+ * Vendored from the bb app's `components/ui/settings-section.tsx` (plugin
+ * design §5.5: plugins own their component source; the host ships no UI kit).
+ * Unchanged apart from the module path — the host's class vocabulary
+ * (text-2xs, subtle-foreground, …) is global CSS the plugin stylesheets
+ * share through the scoped Tailwind pass.
+ */
+
+export interface SettingsSectionProps {
+  action?: ReactNode;
+  children: ReactNode;
+  description?: string;
+  title: string;
+}
+
+export function SettingsSection({
+  action,
+  children,
+  description,
+  title,
+}: SettingsSectionProps) {
+  return (
+    <section className="space-y-3">
+      <div
+        className={cn(
+          "flex justify-between gap-4",
+          description ? "items-start" : "items-center",
+        )}
+      >
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
+          {description ? (
+            <p className="mt-0.5 text-xs leading-snug text-subtle-foreground/75">
+              {description}
+            </p>
+          ) : null}
+        </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
+      </div>
+      <div className="rounded-lg border border-border bg-card px-4 py-3.5">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+export interface SettingsRowListProps {
+  children: ReactNode;
+}
+
+export function SettingsRowList({ children }: SettingsRowListProps) {
+  return <div className="divide-y divide-border">{children}</div>;
+}
+
+export interface SettingsRowProps {
+  children: ReactNode;
+  /** Extra classes for rows that need positioning, e.g. a stretched row link. */
+  className?: string;
+}
+
+export function SettingsRow({ children, className }: SettingsRowProps) {
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-3 py-2.5 text-sm first:pt-0 last:pb-0",
+        className,
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+export interface SettingsWithControlProps {
+  label: string;
+  labelBadge?: string;
+  description?: ReactNode;
+  /**
+   * #538 stack the label above full-width controls instead of the
+   * side-by-side split. The split pins the control column `shrink-0`, so a
+   * control cluster wider than half the card (multi-input rows) starves the
+   * `min-w-0` label column down to word-at-a-time.
+   */
+  stacked?: boolean;
+  children: ReactNode;
+}
+
+export function SettingsBadge({ children }: { children: ReactNode }) {
+  return (
+    <span className="shrink-0 rounded-sm border border-border bg-muted/40 px-1.5 py-0.5 text-2xs leading-none text-subtle-foreground">
+      {children}
+    </span>
+  );
+}
+
+export function SettingsWithControl({
+  label,
+  labelBadge,
+  description,
+  stacked = false,
+  children,
+}: SettingsWithControlProps) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-2.5",
+        !stacked && "sm:flex-row sm:justify-between sm:gap-5",
+        !stacked && (description ? "sm:items-start" : "sm:items-center"),
+      )}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <p className="min-w-0 text-sm font-normal text-foreground">{label}</p>
+          {labelBadge ? <SettingsBadge>{labelBadge}</SettingsBadge> : null}
+        </div>
+        {description ? (
+          <p className="mt-0.5 text-xs leading-snug text-subtle-foreground/75">
+            {description}
+          </p>
+        ) : null}
+      </div>
+      <div className={cn(!stacked && "shrink-0 sm:flex sm:justify-end")}>{children}</div>
+    </div>
+  );
+}
