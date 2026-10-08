@@ -75,7 +75,6 @@ import {
 import {
   useCreateThreadQueuedMessage,
   useCancelThreadPlan,
-  useCompactThread,
   useClearThreadGoal,
   useStopThread,
 } from "@/hooks/mutations/thread-runtime-mutations";
@@ -411,7 +410,6 @@ export function ThreadDetailPromptArea({
   const stopThread = useStopThread();
   const cancelThreadPlan = useCancelThreadPlan();
   const clearThreadGoal = useClearThreadGoal();
-  const compactThread = useCompactThread();
   const unarchiveThread = useUnarchiveThread();
   const updateThread = useUpdateThread({
     errorMessage: "Failed to switch the model.",
@@ -1706,10 +1704,6 @@ export function ThreadDetailPromptArea({
         focusEndKey={bottomFocusEndKey}
         environmentSummary={environmentSummary}
         contextWindowUsage={contextWindowUsage ?? null}
-        compactAction={{
-          onCompact: () => void compactThread.mutateAsync(thread.id),
-          pending: compactThread.isPending,
-        }}
         execution={bottomExecutionConfig}
         permission={bottomPermissionConfig}
         typeahead={typeaheadConfig}

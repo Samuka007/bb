@@ -39,7 +39,6 @@ import {
 const mocks = vi.hoisted(() => ({
   cancelThreadPlanMutate: vi.fn(),
   clearThreadGoalMutate: vi.fn(),
-  compactThreadMutateAsync: vi.fn(),
   createQueuedMessageMutateAsync: vi.fn(),
   defaultExecutionOptions: null as ResolvedThreadExecutionOptions | null,
   deleteQueuedMessageMutateAsync: vi.fn(),
@@ -473,10 +472,6 @@ vi.mock("@/hooks/mutations/thread-runtime-mutations", () => ({
   useClearThreadGoal: () => ({
     isPending: false,
     mutate: mocks.clearThreadGoalMutate,
-  }),
-  useCompactThread: () => ({
-    isPending: false,
-    mutateAsync: mocks.compactThreadMutateAsync,
   }),
   useCreateThreadQueuedMessage: () => ({
     isPending: false,

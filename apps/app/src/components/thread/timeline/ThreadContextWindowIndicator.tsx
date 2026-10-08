@@ -1,4 +1,3 @@
-import { Button } from "@bb/shared-ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@bb/shared-ui/popover";
 import type { ThreadContextWindowUsage } from "@bb/server-contract";
 import { useHoverPopover } from "../../ui/hooks/use-hover-popover.js";
@@ -13,15 +12,6 @@ export interface ThreadContextWindowIndicatorProps {
   className?: string;
   /** Render with the usage menu open on mount. Story-only escape hatch. */
   defaultOpen?: boolean;
-  /**
-   * Compact action embedded in the usage popover (hermes-style single
-   * control). Omitted — e.g. on secondary composers — renders the popover
-   * without it.
-   */
-  compactAction?: {
-    onCompact: () => void;
-    pending: boolean;
-  };
 }
 
 const CONTEXT_WINDOW_POPOVER_CLOSE_DELAY_MS = 60;
@@ -32,7 +22,6 @@ export function ThreadContextWindowIndicator({
   usage,
   className,
   defaultOpen,
-  compactAction,
 }: ThreadContextWindowIndicatorProps) {
   const {
     open: hoverOpen,
@@ -131,19 +120,6 @@ export function ThreadContextWindowIndicator({
             </span>
             <span>{leftPercent}% left</span>
           </div>
-          {compactAction ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="w-full"
-              aria-label="Compact context"
-              disabled={compactAction.pending}
-              onClick={compactAction.onCompact}
-            >
-              {compactAction.pending ? "Compacting…" : "Compact context"}
-            </Button>
-          ) : null}
         </div>
       </PopoverContent>
     </Popover>
