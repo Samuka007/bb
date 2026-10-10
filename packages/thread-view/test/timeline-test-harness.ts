@@ -124,11 +124,16 @@ interface ClientTurnRejectedArgs extends EventFactoryRowOptions {
 
 interface ReasoningCompletedArgs extends ProviderTurnEventOptions {
   itemId?: string;
+  summary?: string;
   text: string;
 }
 
 interface ReasoningDeltaArgs extends ProviderTurnEventOptions {
   delta: string;
+  itemId?: string;
+}
+
+interface ReasoningStartedArgs extends ProviderTurnEventOptions {
   itemId?: string;
 }
 
@@ -332,6 +337,12 @@ export interface TimelineEventFactory {
   reasoningDelta(
     args: ReasoningDeltaArgs,
   ): ThreadEventRowOfType<"item/reasoning/textDelta">;
+  reasoningStarted(
+    args?: ReasoningStartedArgs,
+  ): ThreadEventRowOfType<"item/started">;
+  reasoningSummaryDelta(
+    args: ReasoningDeltaArgs,
+  ): ThreadEventRowOfType<"item/reasoning/summaryTextDelta">;
   systemError(args: SystemErrorArgs): ThreadEventRowOfType<"system/error">;
   systemOperation(
     args: SystemOperationArgs,
@@ -1007,8 +1018,11 @@ export function createTimelineEventFactory(
           item: {
             type: "reasoning",
             id: args.itemId ?? `reasoning-${base.seq}`,
-            summary: [],
+            summary: args.summary ? [args.summary] : [],
             content: [args.text],
+            ...(args.parentToolCallId
+              ? { parentToolCallId: args.parentToolCallId }
+              : {}),
           },
         },
       };
@@ -1022,6 +1036,34 @@ export function createTimelineEventFactory(
           ...providerFields(args),
           itemId: args.itemId ?? `reasoning-${base.seq}`,
           delta: args.delta,
+          ...(args.parentToolCallId
+            ? { parentToolCallId: args.parentToolCallId }
+            : {}),
+        },
+      };
+    },
+    reasoningSummaryDelta(args) {
+      return {
+        ...this.reasoningDelta(args),
+        type: "item/reasoning/summaryTextDelta",
+      };
+    },
+    reasoningStarted(args = {}) {
+      const base = nextProviderTurnScopedRowBase("reasoning-started", args);
+      return {
+        ...base,
+        type: "item/started",
+        data: {
+          ...providerFields(args),
+          item: {
+            type: "reasoning",
+            id: args.itemId ?? `reasoning-${base.seq}`,
+            summary: [],
+            content: [],
+            ...(args.parentToolCallId
+              ? { parentToolCallId: args.parentToolCallId }
+              : {}),
+          },
         },
       };
     },

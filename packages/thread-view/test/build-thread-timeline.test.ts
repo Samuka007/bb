@@ -2791,3 +2791,69 @@ describe("buildThreadTimelineFromEvents", () => {
     expect(rows[0]?.change.path).toBe("/etc/hosts");
   });
 });
+
+it("keeps a canonical disclosure ID when completed reasoning gains a delegation prefix", () => {
+  const event = createTimelineEventFactory({
+    threadId: "thread-1",
+    turnId: "turn-1",
+  });
+  const parentToolCallId = "helper";
+  const events = [
+    event.turnStarted({ seq: 1 }),
+    event.toolCallStarted({
+      seq: 2,
+      itemId: parentToolCallId,
+      tool: "Agent",
+      arguments: {
+        description: "Run the helper",
+        prompt: "Run the helper",
+      },
+    }),
+    event.reasoningStarted({ seq: 3, itemId: "reasoning", parentToolCallId }),
+    event.reasoningDelta({
+      seq: 4,
+      itemId: "reasoning",
+      parentToolCallId,
+      delta: "Inspect the helper.",
+    }),
+  ];
+  const live = buildThreadTimelineFromEvents({
+    acceptedClientRequestContext: EMPTY_ACCEPTED_CLIENT_REQUEST_CONTEXT,
+    contextWindowEvents: [],
+    events: fromRows(events),
+    options: {
+      includeDebugRawEvents: false,
+      includeNestedRows: true,
+      includeProviderUnhandledOperations: false,
+      isLatestPage: true,
+      threadStatus: "active",
+      threadName: "",
+      turnMessageDetail: "full",
+      workspaceRoot: null,
+    },
+  });
+  const rows = buildTimelineRows(
+    fromRows([
+      ...events,
+      event.reasoningCompleted({
+        seq: 5,
+        itemId: "reasoning",
+        parentToolCallId,
+        text: "Inspect the helper.",
+      }),
+      event.toolCallCompleted({
+        seq: 6,
+        itemId: parentToolCallId,
+        tool: "Agent",
+      }),
+    ]),
+  );
+  const [delegation] = collectDelegationRows(rows);
+  const completed = delegation?.childRows.find((row) => row.kind === "system");
+  expect(live.activeThinking?.id).toBeTruthy();
+  expect(completed).toMatchObject({
+    reasoningId: live.activeThinking?.id,
+    operationKind: "reasoning",
+  });
+  expect(completed?.id).not.toBe(live.activeThinking?.id);
+});

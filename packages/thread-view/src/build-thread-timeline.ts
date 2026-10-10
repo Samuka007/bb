@@ -232,6 +232,7 @@ function operationKindForMessage(
   parentChange: TimelineParentChange | null,
 ): TimelineSystemOperationKind {
   switch (message.opType) {
+    case "reasoning":
     case "compaction":
     case "context-clear":
     case "thread-provisioning":
@@ -288,6 +289,7 @@ function buildGenericOperationSystemRow({
     kind: "system",
     systemKind: "operation",
     operationKind,
+    ...(operationKind === "reasoning" ? { reasoningId: message.id } : {}),
     title: message.title,
     detail: buildTimelineOperationDetail(message),
     status: message.status ?? null,

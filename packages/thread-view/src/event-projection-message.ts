@@ -230,6 +230,7 @@ export interface EventProjectionFileEditMessage extends EventProjectionMessageBa
 }
 
 export const eventProjectionOperationTypeValues = [
+  "reasoning",
   "provider-unhandled",
   "warning",
   "deprecation",

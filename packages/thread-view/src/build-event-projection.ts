@@ -519,7 +519,6 @@ function buildFlatProjectionData(
 ): BuildFlatProjectionDataResult {
   const state = createProjectionState();
   const includeDebugRawEvents = args.options?.includeDebugRawEvents ?? false;
-  const shouldTrackActiveThinking = args.includeActiveThinking;
 
   const orderedEvents = args.events;
   const acceptedClientRequestById = buildAcceptedClientRequestById({
@@ -620,7 +619,7 @@ function buildFlatProjectionData(
           scope: decoded.scope,
         });
         onTurnCompleted({
-          completedAt: meta.createdAt,
+          meta,
           state,
           turnId: completedTurnId,
           status: decoded.status,
@@ -631,7 +630,7 @@ function buildFlatProjectionData(
         );
       } else {
         onThreadInterrupted({
-          completedAt: meta.createdAt,
+          meta,
           state,
         });
         flushProjectionBufferedOutputs(state);
@@ -719,7 +718,6 @@ function buildFlatProjectionData(
         eventParentToolCallId,
         eventTurnId,
         meta,
-        shouldTrackActiveThinking,
         state,
       })
     ) {
