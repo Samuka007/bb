@@ -5,17 +5,18 @@
   "exports": {
     ".": {
       "source": "./src/index.ts",
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./local": {
       "source": "./src/local.ts",
-      "types": "./src/local.ts",
-      "default": "./src/local.ts"
+      "types": "./dist/local.d.ts",
+      "default": "./dist/local.js"
     }
   },
   "types": "./src/index.ts",
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "clean": "rimraf dist tsconfig.tsbuildinfo",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts"

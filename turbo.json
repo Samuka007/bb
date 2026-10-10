@@ -48,8 +48,15 @@
       ]
     },
     "build": {
+      // ^build: dist-emitting packages (@bb/domain, @bb/thread-view,
+      // @bb/server-contract, @bb/host-daemon-contract,
+      // @bb/hono-typed-routes) resolve cross-package types through each
+      // other's emitted dist/*.d.ts (their tsconfig.build.json clears the
+      // "source" condition for portable declarations), so a dependent's
+      // declaration emit needs its dependencies' dist present first.
       "dependsOn": [
-        "topo"
+        "topo",
+        "^build"
       ],
       "inputs": [
         "$TURBO_DEFAULT$",

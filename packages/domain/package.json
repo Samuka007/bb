@@ -5,37 +5,38 @@
   "exports": {
     ".": {
       "source": "./src/index.ts",
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./thread-status": {
       "source": "./src/thread-status.ts",
-      "types": "./src/thread-status.ts",
-      "default": "./src/thread-status.ts"
+      "types": "./dist/thread-status.d.ts",
+      "default": "./dist/thread-status.js"
     },
     "./thread-origin-kind": {
       "source": "./src/thread-origin-kind.ts",
-      "types": "./src/thread-origin-kind.ts",
-      "default": "./src/thread-origin-kind.ts"
+      "types": "./dist/thread-origin-kind.d.ts",
+      "default": "./dist/thread-origin-kind.js"
     },
     "./thread-visibility": {
       "source": "./src/thread-visibility.ts",
-      "types": "./src/thread-visibility.ts",
-      "default": "./src/thread-visibility.ts"
+      "types": "./dist/thread-visibility.d.ts",
+      "default": "./dist/thread-visibility.js"
     },
     "./plugin-cli": {
       "source": "./src/plugin-cli.ts",
-      "types": "./src/plugin-cli.ts",
-      "default": "./src/plugin-cli.ts"
+      "types": "./dist/plugin-cli.d.ts",
+      "default": "./dist/plugin-cli.js"
     },
     "./plugin-interaction-limits": {
       "source": "./src/plugin-interaction-limits.ts",
-      "types": "./src/plugin-interaction-limits.ts",
-      "default": "./src/plugin-interaction-limits.ts"
+      "types": "./dist/plugin-interaction-limits.d.ts",
+      "default": "./dist/plugin-interaction-limits.js"
     }
   },
   "types": "./src/index.ts",
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "clean": "rimraf dist tsconfig.tsbuildinfo",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts"
